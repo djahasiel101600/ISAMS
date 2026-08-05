@@ -41,6 +41,14 @@ export const api = {
     return res.data;
   },
 
+  async createOrganization(org: Partial<Organization>): Promise<Organization> {
+    const res = await fetchJson<{ data: Organization }>(`${BASE_URL}/organizations`, {
+      method: 'POST',
+      body: JSON.stringify(org)
+    });
+    return res.data;
+  },
+
   // Users
   async getUsers(orgId: string = 'org-1'): Promise<User[]> {
     const res = await fetchJson<{ data: User[] }>(`${BASE_URL}/users?org_id=${orgId}`);
@@ -50,6 +58,14 @@ export const api = {
   // Categories
   async getCategories(orgId: string = 'org-1'): Promise<AssetCategory[]> {
     const res = await fetchJson<{ data: AssetCategory[] }>(`${BASE_URL}/categories?org_id=${orgId}`);
+    return res.data;
+  },
+
+  async createCategory(cat: Partial<AssetCategory>): Promise<AssetCategory> {
+    const res = await fetchJson<{ data: AssetCategory }>(`${BASE_URL}/categories`, {
+      method: 'POST',
+      body: JSON.stringify(cat)
+    });
     return res.data;
   },
 
@@ -109,6 +125,7 @@ export const api = {
 
   async createAsset(data: {
     title: string;
+    organization_id?: string;
     category_id: string;
     location_id: string;
     description?: string;

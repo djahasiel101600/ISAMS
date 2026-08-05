@@ -46,6 +46,19 @@ async function startServer() {
     res.json({ status: 'success', data: orgs });
   });
 
+  app.post('/api/v1/organizations', (req: Request, res: Response) => {
+    try {
+      const { name, code, address, contact_email, contact_phone } = req.body;
+      if (!name) {
+        return res.status(400).json({ status: 'error', message: 'Organization name is required' });
+      }
+      const newOrg = db.addOrganization({ name, code, address, contact_email, contact_phone });
+      res.status(201).json({ status: 'success', data: newOrg });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
   app.get('/api/v1/organizations/:id', (req: Request, res: Response) => {
     const org = db.getOrganizationById(req.params.id);
     if (!org) {
@@ -66,6 +79,26 @@ async function startServer() {
     const orgId = (req.query.org_id as string) || 'org-1';
     const categories = db.getCategories(orgId);
     res.json({ status: 'success', data: categories });
+  });
+
+  app.post('/api/v1/categories', (req: Request, res: Response) => {
+    try {
+      const { organization_id, name, code, icon_name, color, description } = req.body;
+      if (!name) {
+        return res.status(400).json({ status: 'error', message: 'Category name is required' });
+      }
+      const newCat = db.addCategory({
+        organization_id: organization_id || 'org-1',
+        name,
+        code: code || name.slice(0, 4).toUpperCase(),
+        icon_name: icon_name || 'FileText',
+        color: color || 'bg-blue-500',
+        description: description || ''
+      });
+      res.status(201).json({ status: 'success', data: newCat });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
   });
 
   // 4. Locations & Spatial Hierarchy

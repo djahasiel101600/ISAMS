@@ -7,11 +7,25 @@ import { BarChart3, Download, Building, Boxes, PieChart, FileCheck } from 'lucid
 import { DashboardMetrics } from '../../types/isams';
 
 interface ReportsViewProps {
-  metrics: DashboardMetrics;
+  metrics: DashboardMetrics | null;
   onExportCsv: () => void;
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({ metrics, onExportCsv }) => {
+  const safeMetrics: DashboardMetrics = metrics || {
+    total_assets: 0,
+    available_assets: 0,
+    checked_out_assets: 0,
+    in_transit_assets: 0,
+    total_buildings: 0,
+    total_rooms: 0,
+    total_storage_units: 0,
+    avg_occupancy_rate: 0,
+    top_categories: [],
+    recent_moves: [],
+    recent_activities: []
+  };
+
   return (
     <div className="space-y-6">
       
@@ -44,7 +58,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ metrics, onExportCsv }
           </h3>
 
           <div className="space-y-3">
-            {metrics.top_categories.map((cat, i) => (
+            {(safeMetrics.top_categories || []).map((cat, i) => (
               <div key={i} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-slate-200">{cat.category_name}</span>
@@ -53,7 +67,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ metrics, onExportCsv }
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full ${cat.color}`}
-                    style={{ width: `${Math.min(100, (cat.count / (metrics.total_assets || 1)) * 100)}%` }}
+                    style={{ width: `${Math.min(100, (cat.count / (safeMetrics.total_assets || 1)) * 100)}%` }}
                   />
                 </div>
               </div>
@@ -70,19 +84,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ metrics, onExportCsv }
           <div className="space-y-4 text-xs text-slate-300">
             <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
               <span>Total Facilities & Buildings</span>
-              <span className="font-bold text-white">{metrics.total_buildings} Facilities</span>
+              <span className="font-bold text-white">{safeMetrics.total_buildings} Facilities</span>
             </div>
             <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
               <span>Vault Rooms & Storage Areas</span>
-              <span className="font-bold text-white">{metrics.total_rooms} Rooms</span>
+              <span className="font-bold text-white">{safeMetrics.total_rooms} Rooms</span>
             </div>
             <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
               <span>Rolling Cabinets, Safes & Containers</span>
-              <span className="font-bold text-white">{metrics.total_storage_units} Units</span>
+              <span className="font-bold text-white">{safeMetrics.total_storage_units} Units</span>
             </div>
             <div className="flex justify-between items-center bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
               <span>Overall Facility Storage Density</span>
-              <span className="font-bold text-emerald-400">{metrics.avg_occupancy_rate}% Capacity Used</span>
+              <span className="font-bold text-emerald-400">{safeMetrics.avg_occupancy_rate}% Capacity Used</span>
             </div>
           </div>
         </div>

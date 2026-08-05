@@ -1,6 +1,6 @@
 /**
  * ISAMS Header Bar Component
- * Organization Switcher, Active Persona/Role Switcher, Command Search, QR Scanner Trigger
+ * Organization Switcher, Permission Matrix Trigger, Command Search, QR Scanner Trigger
  */
 
 import React from 'react';
@@ -10,17 +10,18 @@ import {
   QrCode, 
   ShieldCheck, 
   Plus, 
-  Bell, 
-  Layers
+  Layers,
+  Key,
+  Sliders
 } from 'lucide-react';
-import { Organization, User, RoleName } from '../../types/isams';
+import { Organization, User } from '../../types/isams';
 
 interface HeaderProps {
   organizations: Organization[];
   currentOrg: Organization;
   onSelectOrg: (org: Organization) => void;
   currentUser: User;
-  onRoleChange: (role: RoleName) => void;
+  onOpenPermissionMatrix: () => void;
   onOpenQrScanner: () => void;
   onOpenRegisterAsset: () => void;
   onOpenRelocate: () => void;
@@ -33,21 +34,17 @@ export const Header: React.FC<HeaderProps> = ({
   currentOrg,
   onSelectOrg,
   currentUser,
-  onRoleChange,
+  onOpenPermissionMatrix,
   onOpenQrScanner,
   onOpenRegisterAsset,
   onOpenRelocate,
   globalSearchQuery,
   onSearchChange,
 }) => {
-  const availableRoles: RoleName[] = [
-    'Administrator',
-    'Records Officer',
-    'Inventory Manager',
-    'Department Head',
-    'Staff',
-    'Viewer'
-  ];
+  // Calculate count of active permissions
+  const activePermissionCount = currentUser.permissions 
+    ? Object.values(currentUser.permissions).filter(Boolean).length 
+    : 0;
 
   return (
     <header className="sticky top-0 z-30 bg-slate-900 border-b border-slate-800 text-slate-100 shadow-md">
@@ -87,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Actions & Persona Selector */}
+          {/* Actions & Permission Controls */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             
             {/* Quick Action: QR Scan */}
@@ -100,14 +97,16 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden lg:inline">Scan QR</span>
             </button>
 
-            {/* Quick Action: Add Asset */}
-            <button
-              onClick={onOpenRegisterAsset}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-all shadow-sm cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Register Asset</span>
-            </button>
+            {/* Quick Action: Register Asset (Guarded by permission) */}
+            {currentUser.permissions?.can_register_assets && (
+              <button
+                onClick={onOpenRegisterAsset}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-all shadow-sm cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Register Asset</span>
+              </button>
+            )}
 
             {/* Organization Selector */}
             <div className="hidden lg:flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1 text-xs">
@@ -128,37 +127,33 @@ export const Header: React.FC<HeaderProps> = ({
               </select>
             </div>
 
-            {/* Active Persona / Role Switcher for Testing */}
+            {/* Permission Control Switcher / Trigger */}
             <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-              <div className="hidden sm:flex flex-col text-right">
-                <span className="text-xs font-medium text-slate-200">{currentUser.name}</span>
-                <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400">
-                  <ShieldCheck className="w-3 h-3 text-blue-400" />
-                  <select
-                    value={currentUser.role}
-                    onChange={(e) => onRoleChange(e.target.value as RoleName)}
-                    className="bg-slate-800/80 text-blue-300 font-medium rounded px-1 py-0.5 text-[10px] border border-slate-700 focus:outline-none cursor-pointer"
-                  >
-                    {availableRoles.map(role => (
-                      <option key={role} value={role} className="bg-slate-900 text-slate-200">
-                        Role: {role}
-                      </option>
-                    ))}
-                  </select>
+              <button
+                onClick={onOpenPermissionMatrix}
+                className="flex items-center gap-2 p-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-all cursor-pointer text-left"
+                title="Manage Granular User Permissions"
+              >
+                {currentUser.avatar_url ? (
+                  <img
+                    src={currentUser.avatar_url}
+                    alt={currentUser.name}
+                    className="w-7 h-7 rounded-full border border-slate-700 object-cover"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
+                    {currentUser.name.charAt(0)}
+                  </div>
+                )}
+                
+                <div className="hidden sm:flex flex-col text-left pr-1">
+                  <span className="text-xs font-semibold text-slate-200">{currentUser.name}</span>
+                  <div className="flex items-center gap-1 text-[10px] text-blue-400 font-medium">
+                    <Key className="w-3 h-3 text-indigo-400" />
+                    <span>{activePermissionCount}/12 Permissions</span>
+                  </div>
                 </div>
-              </div>
-
-              {currentUser.avatar_url ? (
-                <img
-                  src={currentUser.avatar_url}
-                  alt={currentUser.name}
-                  className="w-8 h-8 rounded-full border border-slate-700 object-cover"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
-                  {currentUser.name.charAt(0)}
-                </div>
-              )}
+              </button>
             </div>
 
           </div>

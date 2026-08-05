@@ -21,7 +21,7 @@ import {
 import { DashboardMetrics, AssetLocationHistory, AuditLog } from '../../types/isams';
 
 interface DashboardViewProps {
-  metrics: DashboardMetrics;
+  metrics: DashboardMetrics | null;
   onNavigateTab: (tab: any) => void;
   onOpenRegisterAsset: () => void;
   onOpenRelocate: () => void;
@@ -35,6 +35,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenRelocate,
   onOpenQrScanner,
 }) => {
+  const safeMetrics: DashboardMetrics = metrics || {
+    total_assets: 0,
+    available_assets: 0,
+    checked_out_assets: 0,
+    in_transit_assets: 0,
+    total_buildings: 0,
+    total_rooms: 0,
+    total_storage_units: 0,
+    avg_occupancy_rate: 0,
+    top_categories: [],
+    recent_moves: [],
+    recent_activities: []
+  };
+
   return (
     <div className="space-y-6">
       
@@ -87,7 +101,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Boxes className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-white">{metrics.total_assets}</div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-white">{safeMetrics.total_assets}</div>
           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-2">
             <span className="text-emerald-400 font-medium">100% indexed</span> across facility locations
           </div>
@@ -100,7 +114,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-emerald-400">{metrics.available_assets}</div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-emerald-400">{safeMetrics.available_assets}</div>
           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-2">
             <span>Ready for retrieval</span>
           </div>
@@ -113,7 +127,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-amber-400">{metrics.checked_out_assets}</div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-amber-400">{safeMetrics.checked_out_assets}</div>
           <div className="flex items-center gap-1.5 text-[11px] text-amber-400/90 mt-2 font-medium">
             <button onClick={() => onNavigateTab('borrowing')} className="hover:underline flex items-center gap-1">
               View borrowing register <ArrowUpRight className="w-3 h-3" />
@@ -128,7 +142,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <MoveRight className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-indigo-400">{metrics.in_transit_assets}</div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-indigo-400">{safeMetrics.in_transit_assets}</div>
           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-2">
             <span>Relocation pending verification</span>
           </div>
@@ -158,32 +172,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-slate-300 font-medium flex items-center gap-1.5">
                 <Building className="w-3.5 h-3.5 text-indigo-400" /> Buildings Registered
               </span>
-              <span className="font-bold text-white">{metrics.total_buildings} Facilities</span>
+              <span className="font-bold text-white">{safeMetrics.total_buildings} Facilities</span>
             </div>
 
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-300 font-medium flex items-center gap-1.5">
                 <Home className="w-3.5 h-3.5 text-cyan-400" /> Rooms & Storage Vaults
               </span>
-              <span className="font-bold text-white">{metrics.total_rooms} Rooms</span>
+              <span className="font-bold text-white">{safeMetrics.total_rooms} Rooms</span>
             </div>
 
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-300 font-medium flex items-center gap-1.5">
                 <Archive className="w-3.5 h-3.5 text-amber-400" /> Rolling Cabinets & Safes
               </span>
-              <span className="font-bold text-white">{metrics.total_storage_units} Units</span>
+              <span className="font-bold text-white">{safeMetrics.total_storage_units} Units</span>
             </div>
 
             <div className="pt-2 border-t border-slate-800/80 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Average Facility Occupancy</span>
-                <span className="font-bold text-emerald-400">{metrics.avg_occupancy_rate}% Capacity Used</span>
+                <span className="font-bold text-emerald-400">{safeMetrics.avg_occupancy_rate}% Capacity Used</span>
               </div>
               <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                 <div 
                   className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full rounded-full transition-all"
-                  style={{ width: `${metrics.avg_occupancy_rate}%` }}
+                  style={{ width: `${safeMetrics.avg_occupancy_rate}%` }}
                 />
               </div>
             </div>
@@ -205,7 +219,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {metrics.top_categories.map((cat, idx) => (
+            {(safeMetrics.top_categories || []).map((cat, idx) => (
               <div key={idx} className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className={`w-3 h-3 rounded-full ${cat.color}`} />
@@ -239,10 +253,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-3">
-            {metrics.recent_moves.length === 0 ? (
+            {(safeMetrics.recent_moves || []).length === 0 ? (
               <p className="text-xs text-slate-400 py-4 text-center">No recent asset relocations recorded.</p>
             ) : (
-              metrics.recent_moves.map((move: AssetLocationHistory) => (
+              safeMetrics.recent_moves.map((move: AssetLocationHistory) => (
                 <div key={move.id} className="bg-slate-800/40 border border-slate-700/40 rounded-lg p-3 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-white">{move.asset_number}</span>
@@ -281,7 +295,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-3">
-            {metrics.recent_activities.slice(0, 5).map((log: AuditLog) => (
+            {(safeMetrics.recent_activities || []).slice(0, 5).map((log: AuditLog) => (
               <div key={log.id} className="flex items-start gap-3 text-xs border-b border-slate-800/60 pb-2.5 last:border-none">
                 <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
                 <div className="flex-1 space-y-0.5">

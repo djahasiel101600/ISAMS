@@ -58,6 +58,20 @@ class MockDatabase {
         name: 'System Administrator',
         email: 'admin@organization.com',
         role: 'Administrator',
+        permissions: {
+          can_manage_organization: true,
+          can_manage_locations: true,
+          can_register_assets: true,
+          can_edit_assets: true,
+          can_move_assets: true,
+          can_check_out_in: true,
+          can_archive_delete: true,
+          can_view_audit_logs: true,
+          can_export_reports: true,
+          can_manage_users: true,
+          can_configure_db: true,
+          can_ar_scan: true
+        },
         department: 'Operations',
         avatar_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150',
         created_at: now
@@ -107,12 +121,42 @@ class MockDatabase {
     return this.organizations.find(o => o.id === id);
   }
 
+  public addOrganization(data: Partial<Organization>): Organization {
+    const now = new Date().toISOString();
+    const newOrg: Organization = {
+      id: `org-${Date.now()}`,
+      name: data.name || 'New Organization',
+      code: data.code || `ORG-${Math.floor(Math.random() * 1000)}`,
+      address: data.address || '',
+      contact_email: data.contact_email || '',
+      contact_phone: data.contact_phone || '',
+      created_at: now,
+      updated_at: now
+    };
+    this.organizations.push(newOrg);
+    return newOrg;
+  }
+
   public getUsers(orgId: string): User[] {
     return this.users.filter(u => u.organization_id === orgId);
   }
 
   public getCategories(orgId: string): AssetCategory[] {
     return this.categories.filter(c => c.organization_id === orgId);
+  }
+
+  public addCategory(data: Partial<AssetCategory>): AssetCategory {
+    const newCat: AssetCategory = {
+      id: `cat-${Date.now()}`,
+      organization_id: data.organization_id || 'org-1',
+      name: data.name || 'General Category',
+      code: data.code || `CAT-${Math.floor(Math.random() * 1000)}`,
+      icon_name: data.icon_name || 'FileText',
+      color: data.color || 'bg-blue-500',
+      description: data.description || ''
+    };
+    this.categories.push(newCat);
+    return newCat;
   }
 
   public getLocations(orgId: string): LocationNode[] {

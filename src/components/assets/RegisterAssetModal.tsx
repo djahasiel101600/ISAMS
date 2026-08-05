@@ -1,38 +1,72 @@
 /**
  * ISAMS Asset Registration Modal
- * Form for adding new physical items into exact spatial locations
+ * Form for adding new physical items into exact spatial locations.
+ * Allows supplying custom Category and Organization directly if needed/necessary.
  */
 
 import React, { useState } from 'react';
-import { X, Plus, MapPin, Tag, Image as ImageIcon, FileText } from 'lucide-react';
-import { AssetCategory, LocationNode } from '../../types/isams';
+import { X, Plus, MapPin, Tag, Image as ImageIcon, FileText, Building2, PlusCircle, Check } from 'lucide-react';
+import { AssetCategory, LocationNode, Organization } from '../../types/isams';
 
 interface RegisterAssetModalProps {
   isOpen: boolean;
   onClose: () => void;
+  organizations: Organization[];
+  currentOrgId: string;
   categories: AssetCategory[];
   locations: LocationNode[];
   initialLocationId?: string | null;
   onSubmit: (data: {
     title: string;
+    organization_id: string;
     category_id: string;
     location_id: string;
     description: string;
     keywords: string;
     photos: string[];
+    // Optional new organization details supplied by user
+    newOrganization?: {
+      name: string;
+      code: string;
+      contact_email?: string;
+    };
+    // Optional new category details supplied by user
+    newCategory?: {
+      name: string;
+      code: string;
+      description?: string;
+      color?: string;
+    };
   }) => void;
 }
 
 export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
   isOpen,
   onClose,
+  organizations,
+  currentOrgId,
   categories,
   locations,
   initialLocationId,
   onSubmit,
 }) => {
   const [title, setTitle] = useState('');
-  const [categoryId, setCategoryId] = useState(categories[0]?.id || '');
+  
+  // Organization state
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(currentOrgId || organizations[0]?.id || 'CREATE_NEW');
+  const [isSupplyingNewOrg, setIsSupplyingNewOrg] = useState<boolean>(organizations.length === 0);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgCode, setNewOrgCode] = useState('');
+  const [newOrgEmail, setNewOrgEmail] = useState('');
+
+  // Category state
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(categories[0]?.id || 'CREATE_NEW');
+  const [isSupplyingNewCategory, setIsSupplyingNewCategory] = useState<boolean>(categories.length === 0);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryCode, setNewCategoryCode] = useState('');
+  const [newCategoryDesc, setNewCategoryDesc] = useState('');
+
+  // Location & Details
   const [locationId, setLocationId] = useState(initialLocationId || locations[0]?.id || '');
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -40,21 +74,61 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleOrgSelectChange = (val: string) => {
+    if (val === 'CREATE_NEW') {
+      setIsSupplyingNewOrg(true);
+      setSelectedOrgId('CREATE_NEW');
+    } else {
+      setIsSupplyingNewOrg(false);
+      setSelectedOrgId(val);
+    }
+  };
+
+  const handleCategorySelectChange = (val: string) => {
+    if (val === 'CREATE_NEW') {
+      setIsSupplyingNewCategory(true);
+      setSelectedCategoryId('CREATE_NEW');
+    } else {
+      setIsSupplyingNewCategory(false);
+      setSelectedCategoryId(val);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !categoryId || !locationId) return;
+    if (!title.trim() || !locationId) return;
+
+    if (isSupplyingNewOrg && !newOrgName.trim()) return;
+    if (isSupplyingNewCategory && !newCategoryName.trim()) return;
 
     onSubmit({
       title: title.trim(),
-      category_id: categoryId,
+      organization_id: isSupplyingNewOrg ? 'pending_new_org' : selectedOrgId,
+      category_id: isSupplyingNewCategory ? 'pending_new_cat' : selectedCategoryId,
       location_id: locationId,
       description: description.trim(),
       keywords: keywords.trim(),
-      photos: photoUrl.trim() ? [photoUrl.trim()] : []
+      photos: photoUrl.trim() ? [photoUrl.trim()] : [],
+      newOrganization: isSupplyingNewOrg ? {
+        name: newOrgName.trim(),
+        code: newOrgCode.trim() || newOrgName.trim().slice(0, 4).toUpperCase(),
+        contact_email: newOrgEmail.trim()
+      } : undefined,
+      newCategory: isSupplyingNewCategory ? {
+        name: newCategoryName.trim(),
+        code: newCategoryCode.trim() || newCategoryName.trim().slice(0, 4).toUpperCase(),
+        description: newCategoryDesc.trim()
+      } : undefined
     });
 
-    // Reset
+    // Reset Form
     setTitle('');
+    setNewOrgName('');
+    setNewOrgCode('');
+    setNewOrgEmail('');
+    setNewCategoryName('');
+    setNewCategoryCode('');
+    setNewCategoryDesc('');
     setDescription('');
     setKeywords('');
     setPhotoUrl('');
@@ -70,13 +144,16 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8">
+      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8">
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50">
           <div className="flex items-center gap-2">
             <Plus className="w-5 h-5 text-blue-400" />
-            <h3 className="text-base font-bold text-white">Register New Physical Asset</h3>
+            <div>
+              <h3 className="text-base font-bold text-white">Register New Physical Asset</h3>
+              <p className="text-[11px] text-slate-400">Supply asset specs, spatial location, category, & organization details</p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -104,44 +181,147 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Organization & Category Section */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-950/50 rounded-xl border border-slate-800/80">
             
-            {/* Category */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Category <span className="text-rose-400">*</span>
-              </label>
-              <select
-                required
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+            {/* Organization (Select or Supply New) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-indigo-400" />
+                  Organization <span className="text-rose-400">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleOrgSelectChange(isSupplyingNewOrg ? (organizations[0]?.id || '') : 'CREATE_NEW')}
+                  className="text-[10px] text-blue-400 hover:text-blue-300 font-medium underline cursor-pointer"
+                >
+                  {isSupplyingNewOrg ? 'Choose Existing Org' : '+ Supply New Org'}
+                </button>
+              </div>
+
+              {!isSupplyingNewOrg ? (
+                <select
+                  required
+                  value={selectedOrgId}
+                  onChange={(e) => handleOrgSelectChange(e.target.value)}
+                  className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {organizations.map(org => (
+                    <option key={org.id} value={org.id}>{org.name} ({org.code})</option>
+                  ))}
+                  <option value="CREATE_NEW">+ Supply / Enter New Organization...</option>
+                </select>
+              ) : (
+                <div className="space-y-2 bg-slate-900 p-3 rounded-lg border border-indigo-500/30">
+                  <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider block">Supplying New Organization</span>
+                  <input
+                    type="text"
+                    required
+                    value={newOrgName}
+                    onChange={(e) => setNewOrgName(e.target.value)}
+                    placeholder="Organization Name *"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={newOrgCode}
+                      onChange={(e) => setNewOrgCode(e.target.value)}
+                      placeholder="Code (e.g. MHA)"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-slate-400 focus:outline-none"
+                    />
+                    <input
+                      type="email"
+                      value={newOrgEmail}
+                      onChange={(e) => setNewOrgEmail(e.target.value)}
+                      placeholder="Contact Email"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-slate-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Spatial Storage Location */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Spatial Storage Location <span className="text-rose-400">*</span>
-              </label>
-              <select
-                required
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
-                className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-              >
-                {locations.map(l => (
-                  <option key={l.id} value={l.id}>
-                    [{l.type}] {l.code} - {l.name}
-                  </option>
-                ))}
-              </select>
+            {/* Category (Select Type Input Field or Supply New) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-blue-400" />
+                  Category <span className="text-rose-400">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleCategorySelectChange(isSupplyingNewCategory ? (categories[0]?.id || '') : 'CREATE_NEW')}
+                  className="text-[10px] text-blue-400 hover:text-blue-300 font-medium underline cursor-pointer"
+                >
+                  {isSupplyingNewCategory ? 'Choose Existing Category' : '+ Supply New Category'}
+                </button>
+              </div>
+
+              {!isSupplyingNewCategory ? (
+                <select
+                  required
+                  value={selectedCategoryId}
+                  onChange={(e) => handleCategorySelectChange(e.target.value)}
+                  className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {categories.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                  ))}
+                  <option value="CREATE_NEW">+ Supply / Enter New Category...</option>
+                </select>
+              ) : (
+                <div className="space-y-2 bg-slate-900 p-3 rounded-lg border border-blue-500/30">
+                  <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider block">Supplying New Asset Category</span>
+                  <input
+                    type="text"
+                    required
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="Category Name (e.g. Legal Binders) *"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={newCategoryCode}
+                      onChange={(e) => setNewCategoryCode(e.target.value)}
+                      placeholder="Category Code (e.g. LEG)"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-slate-400 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={newCategoryDesc}
+                      onChange={(e) => setNewCategoryDesc(e.target.value)}
+                      placeholder="Brief Description"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-slate-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
+          </div>
+
+          {/* Spatial Storage Location */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+              Spatial Storage Location <span className="text-rose-400">*</span>
+            </label>
+            <select
+              required
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+            >
+              {locations.map(l => (
+                <option key={l.id} value={l.id}>
+                  [{l.type}] {l.code} - {l.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Description */}
@@ -150,7 +330,7 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
               Asset Details & Description
             </label>
             <textarea
-              rows={3}
+              rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Detail physical properties, contents, or special handling rules..."
@@ -210,8 +390,9 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition-all shadow-sm cursor-pointer"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
             >
+              <Check className="w-4 h-4" />
               Register Asset & Generate QR
             </button>
           </div>

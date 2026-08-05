@@ -1,6 +1,6 @@
 /**
  * ISAMS - Indoor Spatial Asset Management System
- * Primary Application Shell & State Controller
+ * Primary Application Shell & Permission-Based Access Controller
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -20,12 +20,15 @@ import { ArRoomScannerView } from './components/ar/ArRoomScannerView';
 import { DatabaseIntegrationView } from './components/db/DatabaseIntegrationView';
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AddLocationModal } from './components/spatial/AddLocationModal';
+import { PermissionMatrixModal } from './components/common/PermissionMatrixModal';
+import { ShieldAlert, Key } from 'lucide-react';
 
 import { api } from './services/api';
 import { 
   Organization, 
   User, 
-  RoleName, 
+  PermissionSet,
+  FULL_ADMIN_PERMISSIONS,
   AssetCategory, 
   LocationNode, 
   Asset, 
@@ -67,12 +70,12 @@ export default function App() {
   // Modals & Triggers
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [relocateAsset, setRelocateAsset] = useState<Asset | null>(null);
-  const [checkOutAssetTarget, setCheckOutAssetTarget] = useState<Asset | null>(null);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registerLocationId, setRegisterLocationId] = useState<string | null>(null);
   const [isAddLocationModalOpen, setIsAddLocationModalOpen] = useState(false);
   const [addLocationParentId, setAddLocationParentId] = useState<string | null>(null);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
+  const [isPermissionMatrixOpen, setIsPermissionMatrixOpen] = useState(false);
 
   // 1. Initial Data Fetching
   const loadInitialData = useCallback(async () => {
@@ -85,7 +88,13 @@ export default function App() {
       if (defaultOrg) {
         const orgUsers = await api.getUsers(defaultOrg.id);
         setUsers(orgUsers);
-        setCurrentUser(orgUsers[0] || null);
+        
+        // Ensure default user has permission set initialized
+        const activeUser = orgUsers[0] ? {
+          ...orgUsers[0],
+          permissions: orgUsers[0].permissions || FULL_ADMIN_PERMISSIONS
+        } : null;
+        setCurrentUser(activeUser);
 
         const cats = await api.getCategories(defaultOrg.id);
         setCategories(cats);
@@ -144,20 +153,72 @@ export default function App() {
     refreshAssets();
   }, [refreshAssets]);
 
-  // 3. User Role Persona Switcher
-  const handleRoleChange = (role: RoleName) => {
+  // 3. Permission Management Handler
+  const handleUpdatePermissions = (newPermissions: PermissionSet) => {
     if (currentUser) {
-      setCurrentUser({ ...currentUser, role });
+      setCurrentUser({
+        ...currentUser,
+        permissions: newPermissions
+      });
     }
   };
 
-  // 4. Asset Registration Handler
-  const handleRegisterAssetSubmit = async (data: any) => {
-    if (!currentOrg || !currentUser) return;
+  // 4. Asset Registration Handler (Supports user-supplied Category & Organization)
+  const handleRegisterAssetSubmit = async (data: {
+    title: string;
+    organization_id: string;
+    category_id: string;
+    location_id: string;
+    description: string;
+    keywords: string;
+    photos: string[];
+    newOrganization?: { name: string; code: string; contact_email?: string };
+    newCategory?: { name: string; code: string; description?: string };
+  }) => {
+    if (!currentUser) return;
     try {
+      let targetOrgId = currentOrg?.id || 'org-1';
+
+      // If user supplied a new organization, create it first
+      if (data.newOrganization) {
+        const createdOrg = await api.createOrganization({
+          name: data.newOrganization.name,
+          code: data.newOrganization.code,
+          contact_email: data.newOrganization.contact_email || ''
+        });
+        targetOrgId = createdOrg.id;
+        const updatedOrgs = await api.getOrganizations();
+        setOrganizations(updatedOrgs);
+        setCurrentOrg(createdOrg);
+      } else if (data.organization_id && data.organization_id !== 'pending_new_org') {
+        targetOrgId = data.organization_id;
+      }
+
+      // If user supplied a new category, create it first
+      let targetCatId = data.category_id;
+      if (data.newCategory) {
+        const createdCat = await api.createCategory({
+          organization_id: targetOrgId,
+          name: data.newCategory.name,
+          code: data.newCategory.code,
+          description: data.newCategory.description || '',
+          icon_name: 'FileText',
+          color: 'bg-blue-500'
+        });
+        targetCatId = createdCat.id;
+        const updatedCats = await api.getCategories(targetOrgId);
+        setCategories(updatedCats);
+      }
+
+      // Register Asset
       await api.createAsset({
-        ...data,
-        organization_id: currentOrg.id,
+        title: data.title,
+        category_id: targetCatId,
+        location_id: data.location_id,
+        description: data.description,
+        keywords: data.keywords,
+        photos: data.photos,
+        organization_id: targetOrgId,
         user_id: currentUser.id,
         user_name: currentUser.name
       });
@@ -219,25 +280,41 @@ export default function App() {
     window.open('/api/v1/reports/export-csv?org_id=' + (currentOrg?.id || 'org-1'), '_blank');
   };
 
-  if (!currentOrg || !currentUser || !metrics) {
+  // Permission Guard Helper
+  const renderPermissionDeniedGuard = (permissionTitle: string, permissionKey: keyof PermissionSet) => (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center max-w-lg mx-auto my-12 space-y-4">
+      <div className="w-12 h-12 bg-rose-500/10 text-rose-400 rounded-xl border border-rose-500/20 flex items-center justify-center mx-auto">
+        <ShieldAlert className="w-6 h-6" />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold text-white">Permission Restricted</h3>
+        <p className="text-xs text-slate-400 mt-1">
+          Your active user policy currently lacks the <span className="text-rose-300 font-semibold">{permissionTitle}</span> permission (<code className="font-mono text-[11px]">{permissionKey}</code>).
+        </p>
+      </div>
+      <button
+        onClick={() => setIsPermissionMatrixOpen(true)}
+        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-sm transition-all inline-flex items-center gap-2 cursor-pointer"
+      >
+        <Key className="w-4 h-4" /> Open Permission Matrix & Enable Access
+      </button>
+    </div>
+  );
+
+  const checkedOutCount = allAssets.filter(a => a.status === 'checked_out').length;
+
+  if (!currentUser || !currentOrg) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="w-12 h-12 rounded-xl bg-blue-600/20 border border-blue-500/40 text-blue-400 flex items-center justify-center mx-auto animate-pulse">
-            ISAMS
-          </div>
-          <p className="text-xs text-slate-400">Loading Indoor Spatial Asset System...</p>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">
+        Initializing ISAMS Spatial Infrastructure...
       </div>
     );
   }
 
-  const checkedOutCount = allAssets.filter(a => a.status === 'checked_out').length;
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased flex flex-col selection:bg-blue-500/30 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
-      {/* Top Header */}
+      {/* Top Header with Permission Matrix Trigger */}
       <Header
         organizations={organizations}
         currentOrg={currentOrg}
@@ -246,7 +323,7 @@ export default function App() {
           setPage(1);
         }}
         currentUser={currentUser}
-        onRoleChange={handleRoleChange}
+        onOpenPermissionMatrix={() => setIsPermissionMatrixOpen(true)}
         onOpenQrScanner={() => setIsQrScannerOpen(true)}
         onOpenRegisterAsset={() => {
           setRegisterLocationId(null);
@@ -256,63 +333,62 @@ export default function App() {
           if (allAssets.length > 0) setRelocateAsset(allAssets[0]);
         }}
         globalSearchQuery={globalSearchQuery}
-        onSearchChange={(q) => {
-          setGlobalSearchQuery(q);
-          setPage(1);
-          if (activeTab !== 'inventory') setActiveTab('inventory');
-        }}
+        onSearchChange={setGlobalSearchQuery}
       />
 
-      {/* Primary Navigation Tabs */}
+      {/* Navigation Tab Bar */}
       <NavigationTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}
         checkedOutCount={checkedOutCount}
         totalAssetsCount={allAssets.length}
+        userPermissions={currentUser.permissions}
       />
 
-      {/* Main View Body */}
+      {/* Primary Workspace Content Views */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
         {activeTab === 'dashboard' && (
           <DashboardView
             metrics={metrics}
-            onNavigateTab={setActiveTab}
+            allAssets={allAssets}
+            onSelectAsset={setSelectedAsset}
             onOpenRegisterAsset={() => {
               setRegisterLocationId(null);
               setIsRegisterModalOpen(true);
             }}
-            onOpenRelocate={() => {
-              if (allAssets.length > 0) setRelocateAsset(allAssets[0]);
-            }}
-            onOpenQrScanner={() => setIsQrScannerOpen(true)}
+            onNavigateTab={setActiveTab}
           />
         )}
 
         {activeTab === 'spatial' && (
-          <SpatialExplorer
-            locations={locations}
-            assets={allAssets}
-            onSelectAsset={setSelectedAsset}
-            onOpenRegisterAssetAtLocation={(locId) => {
-              setRegisterLocationId(locId);
-              setIsRegisterModalOpen(true);
-            }}
-            onOpenAddLocation={(parentId) => {
-              setAddLocationParentId(parentId);
-              setIsAddLocationModalOpen(true);
-            }}
-            onOpenQrScanner={() => setIsQrScannerOpen(true)}
-          />
+          currentUser.permissions?.can_manage_locations ? (
+            <SpatialExplorer
+              locations={locations}
+              assets={allAssets}
+              onSelectAsset={setSelectedAsset}
+              onOpenRegisterAtLocation={(locId) => {
+                setRegisterLocationId(locId);
+                setIsRegisterModalOpen(true);
+              }}
+              onOpenAddLocation={(parentId) => {
+                setAddLocationParentId(parentId);
+                setIsAddLocationModalOpen(true);
+              }}
+              onOpenQrScanner={() => setIsQrScannerOpen(true)}
+            />
+          ) : renderPermissionDeniedGuard('Manage Spatial Locations', 'can_manage_locations')
         )}
 
         {activeTab === 'ar_scanner' && (
-          <ArRoomScannerView
-            assets={allAssets}
-            locations={locations}
-            currentUser={currentUser}
-            onSelectAsset={setSelectedAsset}
-          />
+          currentUser.permissions?.can_ar_scan ? (
+            <ArRoomScannerView
+              assets={allAssets}
+              locations={locations}
+              currentUser={currentUser}
+              onSelectAsset={setSelectedAsset}
+            />
+          ) : renderPermissionDeniedGuard('AR Spatial Scanning', 'can_ar_scan')
         )}
 
         {activeTab === 'inventory' && (
@@ -360,27 +436,31 @@ export default function App() {
         )}
 
         {activeTab === 'borrowing' && (
-          <CheckInOutView
-            assets={allAssets}
-            onCheckInAsset={handleCheckInAsset}
-            onOpenCheckOutAsset={(asset) => setSelectedAsset(asset)}
-            onSelectAsset={setSelectedAsset}
-          />
+          currentUser.permissions?.can_check_out_in ? (
+            <CheckInOutView
+              assets={allAssets}
+              onCheckInAsset={handleCheckInAsset}
+              onOpenCheckOutAsset={(asset) => setSelectedAsset(asset)}
+              onSelectAsset={setSelectedAsset}
+            />
+          ) : renderPermissionDeniedGuard('Check-In / Check-Out Custody', 'can_check_out_in')
         )}
 
         {activeTab === 'relocation' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center space-y-4">
-            <h2 className="text-lg font-bold text-white">Asset Relocation Engine</h2>
-            <p className="text-xs text-slate-300 max-w-lg mx-auto">
-              Select any registered asset from the inventory or spatial explorer to initiate physical relocation with audit logging.
-            </p>
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-xl"
-            >
-              Select Asset from Inventory
-            </button>
-          </div>
+          currentUser.permissions?.can_move_assets ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center space-y-4">
+              <h2 className="text-lg font-bold text-white">Asset Relocation Engine</h2>
+              <p className="text-xs text-slate-300 max-w-lg mx-auto">
+                Select any registered asset from the inventory or spatial explorer to initiate physical relocation with audit logging.
+              </p>
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-xl cursor-pointer"
+              >
+                Select Asset from Inventory
+              </button>
+            </div>
+          ) : renderPermissionDeniedGuard('Spatial Asset Relocation', 'can_move_assets')
         )}
 
         {activeTab === 'qr_studio' && (
@@ -391,18 +471,24 @@ export default function App() {
         )}
 
         {activeTab === 'audit' && (
-          <AuditTrailView logs={auditLogs} />
+          currentUser.permissions?.can_view_audit_logs ? (
+            <AuditTrailView logs={auditLogs} />
+          ) : renderPermissionDeniedGuard('System Compliance Audit Logs', 'can_view_audit_logs')
         )}
 
         {activeTab === 'reports' && (
-          <ReportsView
-            metrics={metrics}
-            onExportCsv={handleExportCsv}
-          />
+          currentUser.permissions?.can_export_reports ? (
+            <ReportsView
+              metrics={metrics}
+              onExportCsv={handleExportCsv}
+            />
+          ) : renderPermissionDeniedGuard('Export Reports & Analytics', 'can_export_reports')
         )}
 
         {activeTab === 'db_integration' && (
-          <DatabaseIntegrationView />
+          currentUser.permissions?.can_configure_db ? (
+            <DatabaseIntegrationView />
+          ) : renderPermissionDeniedGuard('PostgreSQL Database Integration', 'can_configure_db')
         )}
 
       </main>
@@ -426,10 +512,12 @@ export default function App() {
         onCheckIn={handleCheckInAsset}
       />
 
-      {/* Register Asset Modal */}
+      {/* Register Asset Modal (Supports custom supplied Category and Organization) */}
       <RegisterAssetModal
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
+        organizations={organizations}
+        currentOrgId={currentOrg.id}
         categories={categories}
         locations={locations}
         initialLocationId={registerLocationId}
@@ -459,6 +547,14 @@ export default function App() {
         isOpen={isQrScannerOpen}
         onClose={() => setIsQrScannerOpen(false)}
         onAssetFound={(asset) => setSelectedAsset(asset)}
+      />
+
+      {/* Permission Matrix Modal */}
+      <PermissionMatrixModal
+        isOpen={isPermissionMatrixOpen}
+        onClose={() => setIsPermissionMatrixOpen(false)}
+        currentUser={currentUser}
+        onUpdatePermissions={handleUpdatePermissions}
       />
 
       {/* Footer */}

@@ -22,7 +22,54 @@ export interface PermissionSet {
   can_view_audit_logs: boolean;
   can_export_reports: boolean;
   can_manage_users: boolean;
+  can_configure_db: boolean;
+  can_ar_scan: boolean;
 }
+
+export const FULL_ADMIN_PERMISSIONS: PermissionSet = {
+  can_manage_organization: true,
+  can_manage_locations: true,
+  can_register_assets: true,
+  can_edit_assets: true,
+  can_move_assets: true,
+  can_check_out_in: true,
+  can_archive_delete: true,
+  can_view_audit_logs: true,
+  can_export_reports: true,
+  can_manage_users: true,
+  can_configure_db: true,
+  can_ar_scan: true,
+};
+
+export const STAFF_PERMISSIONS: PermissionSet = {
+  can_manage_organization: false,
+  can_manage_locations: true,
+  can_register_assets: true,
+  can_edit_assets: true,
+  can_move_assets: true,
+  can_check_out_in: true,
+  can_archive_delete: false,
+  can_view_audit_logs: false,
+  can_export_reports: true,
+  can_manage_users: false,
+  can_configure_db: false,
+  can_ar_scan: true,
+};
+
+export const VIEWER_PERMISSIONS: PermissionSet = {
+  can_manage_organization: false,
+  can_manage_locations: false,
+  can_register_assets: false,
+  can_edit_assets: false,
+  can_move_assets: false,
+  can_check_out_in: false,
+  can_archive_delete: false,
+  can_view_audit_logs: true,
+  can_export_reports: true,
+  can_manage_users: false,
+  can_configure_db: false,
+  can_ar_scan: false,
+};
 
 export interface User {
   id: string;
@@ -30,6 +77,7 @@ export interface User {
   name: string;
   email: string;
   role: RoleName;
+  permissions: PermissionSet;
   department: string;
   avatar_url?: string;
   created_at: string;

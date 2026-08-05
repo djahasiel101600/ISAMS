@@ -1,5 +1,6 @@
 /**
  * ISAMS Primary Navigation Tab Bar
+ * Displays tabs with permission-aware indicators and badges
  */
 
 import React from 'react';
@@ -13,8 +14,10 @@ import {
   History, 
   BarChart3,
   Camera,
-  Database
+  Database,
+  Lock
 } from 'lucide-react';
+import { PermissionSet } from '../../types/isams';
 
 export type TabId = 
   | 'dashboard'
@@ -33,15 +36,25 @@ interface NavigationTabsProps {
   onTabChange: (tab: TabId) => void;
   checkedOutCount: number;
   totalAssetsCount: number;
+  userPermissions?: PermissionSet;
 }
 
 export const NavigationTabs: React.FC<NavigationTabsProps> = ({
   activeTab,
   onTabChange,
   checkedOutCount,
-  totalAssetsCount
+  totalAssetsCount,
+  userPermissions
 }) => {
-  const tabs = [
+  const tabs: {
+    id: TabId;
+    label: string;
+    icon: any;
+    count?: number;
+    alert?: boolean;
+    badge?: string;
+    requiredPermission?: keyof PermissionSet;
+  }[] = [
     {
       id: 'dashboard' as TabId,
       label: 'Dashboard',
@@ -51,13 +64,15 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
       id: 'spatial' as TabId,
       label: 'Spatial Explorer',
       icon: MapPin,
-      badge: 'Indoor Map'
+      badge: 'Indoor Map',
+      requiredPermission: 'can_manage_locations'
     },
     {
       id: 'ar_scanner' as TabId,
       label: 'AR Room Scanner',
       icon: Camera,
-      badge: '3D AR'
+      badge: '3D AR',
+      requiredPermission: 'can_ar_scan'
     },
     {
       id: 'inventory' as TabId,
@@ -70,12 +85,14 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
       label: 'Check-In / Check-Out',
       icon: BookOpenCheck,
       count: checkedOutCount,
-      alert: checkedOutCount > 0
+      alert: checkedOutCount > 0,
+      requiredPermission: 'can_check_out_in'
     },
     {
       id: 'relocation' as TabId,
       label: 'Asset Relocation',
-      icon: MoveRight
+      icon: MoveRight,
+      requiredPermission: 'can_move_assets'
     },
     {
       id: 'qr_studio' as TabId,
@@ -85,18 +102,21 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
     {
       id: 'audit' as TabId,
       label: 'Audit Trail',
-      icon: History
+      icon: History,
+      requiredPermission: 'can_view_audit_logs'
     },
     {
       id: 'reports' as TabId,
       label: 'Reports & Analytics',
-      icon: BarChart3
+      icon: BarChart3,
+      requiredPermission: 'can_export_reports'
     },
     {
       id: 'db_integration' as TabId,
       label: 'PostgreSQL Integration',
       icon: Database,
-      badge: 'Database'
+      badge: 'Database',
+      requiredPermission: 'can_configure_db'
     }
   ];
 
@@ -107,6 +127,8 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
+            const isPermitted = !tab.requiredPermission || !userPermissions || !!userPermissions[tab.requiredPermission];
+
             return (
               <button
                 key={tab.id}
@@ -115,11 +137,19 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
                   inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg whitespace-nowrap transition-all cursor-pointer select-none
                   ${isActive
                     ? 'bg-blue-600/90 text-white shadow-sm ring-1 ring-blue-400/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'}
+                    : isPermitted
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
+                      : 'text-slate-500 hover:text-slate-400 hover:bg-slate-800/40 opacity-75'}
                 `}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                {!isPermitted ? (
+                  <Lock className="w-3.5 h-3.5 text-rose-400/80 shrink-0" />
+                ) : (
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                )}
+                
                 <span>{tab.label}</span>
+                
                 {tab.count !== undefined && (
                   <span className={`
                     ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-semibold
@@ -132,7 +162,8 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
                     {tab.count}
                   </span>
                 )}
-                {tab.badge && (
+                
+                {tab.badge && isPermitted && (
                   <span className="ml-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
                     {tab.badge}
                   </span>
