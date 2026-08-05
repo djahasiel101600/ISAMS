@@ -1,0 +1,6 @@
+{
+  "name": "ISAMS - Indoor Spatial Asset Management System",
+  "description": "Enterprise-grade Indoor Spatial Asset Management System for mapping physical locations, tracking assets, QR code workflows, audit logging, and spatial visual navigation.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
