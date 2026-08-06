@@ -22,7 +22,9 @@ import { QrScannerModal } from './components/common/QrScannerModal';
 import { AddLocationModal } from './components/spatial/AddLocationModal';
 import { PermissionMatrixModal } from './components/common/PermissionMatrixModal';
 import { CheckOutModal } from './components/borrowing/CheckOutModal';
-import { ShieldAlert, Key } from 'lucide-react';
+import { InitialSystemSetupModal } from './components/common/InitialSystemSetupModal';
+import { AuthModal } from './components/auth/AuthModal';
+import { ShieldAlert, Key, Sparkles } from 'lucide-react';
 
 import { api } from './services/api';
 import { 
@@ -78,6 +80,49 @@ export default function App() {
   const [addLocationParentId, setAddLocationParentId] = useState<string | null>(null);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [isPermissionMatrixOpen, setIsPermissionMatrixOpen] = useState(false);
+  const [isSystemSetupOpen, setIsSystemSetupOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  // System Setup / Onboarding Handler
+  const handleInitializeSystem = async (data: {
+    orgName: string;
+    orgCode: string;
+    adminName: string;
+    adminEmail: string;
+    template: 'empty' | 'event_kit' | 'corporate_kit';
+  }) => {
+    const res = await api.bootstrapSystem(data);
+    setIsSystemSetupOpen(false);
+    await loadInitialData();
+    if (res.organization) setCurrentOrg(res.organization);
+    if (res.user) setCurrentUser(res.user);
+  };
+
+  const handleAuthSuccess = async (user: User, org: Organization) => {
+    setCurrentOrg(org);
+    setCurrentUser(user);
+    setIsAuthModalOpen(false);
+    await loadInitialData();
+  };
+
+  const handleResetSystem = async () => {
+    try {
+      await api.resetSystem();
+      setCurrentUser(null);
+      setCurrentOrg(null);
+      setUsers([]);
+      setOrganizations([]);
+      setCategories([]);
+      setLocations([]);
+      setAllAssets([]);
+      setPaginatedAssets({ data: [], total: 0, page: 1, limit: 20, total_pages: 1 });
+      setMetrics(null);
+      setAuditLogs([]);
+      setIsAuthModalOpen(true);
+    } catch (err) {
+      console.error('Failed to reset system data:', err);
+    }
+  };
 
   // 1. Initial Data Fetching
   const loadInitialData = useCallback(async () => {
@@ -91,12 +136,20 @@ export default function App() {
         const orgUsers = await api.getUsers(defaultOrg.id);
         setUsers(orgUsers);
         
-        // Ensure default user has permission set initialized
-        const activeUser = orgUsers[0] ? {
-          ...orgUsers[0],
-          permissions: orgUsers[0].permissions || FULL_ADMIN_PERMISSIONS
-        } : null;
-        setCurrentUser(activeUser);
+        // Retain current user if valid, or default to first
+        setCurrentUser(prevUser => {
+          if (prevUser && orgUsers.some(u => u.id === prevUser.id)) {
+            const found = orgUsers.find(u => u.id === prevUser.id)!;
+            return {
+              ...found,
+              permissions: found.permissions || FULL_ADMIN_PERMISSIONS
+            };
+          }
+          return orgUsers[0] ? {
+            ...orgUsers[0],
+            permissions: orgUsers[0].permissions || FULL_ADMIN_PERMISSIONS
+          } : null;
+        });
 
         const cats = await api.getCategories(defaultOrg.id);
         setCategories(cats);
@@ -113,6 +166,14 @@ export default function App() {
         // Fetch all assets for local views
         const assetsResult = await api.getAssets(defaultOrg.id, { limit: 1000 });
         setAllAssets(assetsResult.data);
+      } else {
+        setUsers([]);
+        setCurrentUser(null);
+        setCategories([]);
+        setLocations([]);
+        setMetrics(null);
+        setAuditLogs([]);
+        setAllAssets([]);
       }
     } catch (err) {
       console.error('[ISAMS] Error loading initial data:', err);
@@ -320,11 +381,18 @@ export default function App() {
   );
 
   const checkedOutCount = allAssets.filter(a => a.status === 'checked_out').length;
+  const isZeroState = !currentUser || !currentOrg || organizations.length === 0;
 
-  if (!currentUser || !currentOrg) {
+  if (isZeroState) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">
-        Initializing ISAMS Spatial Infrastructure...
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        <AuthModal
+          isOpen={true}
+          onSuccess={handleAuthSuccess}
+          existingUsers={users}
+          organizations={organizations}
+          isSystemZeroState={true}
+        />
       </div>
     );
   }
@@ -350,6 +418,11 @@ export default function App() {
         onOpenRelocate={() => {
           if (allAssets.length > 0) setRelocateAsset(allAssets[0]);
         }}
+        onOpenSystemSetup={() => setIsSystemSetupOpen(true)}
+        onOpenAuth={(mode) => {
+          setIsAuthModalOpen(true);
+        }}
+        onResetSystem={handleResetSystem}
         globalSearchQuery={globalSearchQuery}
         onSearchChange={setGlobalSearchQuery}
       />
@@ -576,6 +649,25 @@ export default function App() {
         onClose={() => setIsPermissionMatrixOpen(false)}
         currentUser={currentUser}
         onUpdatePermissions={handleUpdatePermissions}
+      />
+
+      {/* System Setup Onboarding & Preset Modal */}
+      <InitialSystemSetupModal
+        isOpen={isSystemSetupOpen}
+        onInitializeSystem={async (data) => {
+          await handleInitializeSystem(data);
+          setIsSystemSetupOpen(false);
+        }}
+      />
+
+      {/* User Login & Registration Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+        existingUsers={users}
+        organizations={organizations}
+        isSystemZeroState={isZeroState}
       />
 
       {/* Footer */}

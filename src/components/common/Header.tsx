@@ -3,7 +3,7 @@
  * Organization Switcher, Permission Matrix Trigger, Command Search, QR Scanner Trigger
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Building2, 
   Search, 
@@ -12,19 +12,27 @@ import {
   Plus, 
   Layers,
   Key,
-  Sliders
+  Sliders,
+  UserPlus,
+  LogIn,
+  RotateCcw,
+  LogOut,
+  ChevronDown
 } from 'lucide-react';
 import { Organization, User } from '../../types/isams';
 
 interface HeaderProps {
   organizations: Organization[];
-  currentOrg: Organization;
+  currentOrg: Organization | null;
   onSelectOrg: (org: Organization) => void;
-  currentUser: User;
+  currentUser: User | null;
   onOpenPermissionMatrix: () => void;
   onOpenQrScanner: () => void;
   onOpenRegisterAsset: () => void;
   onOpenRelocate: () => void;
+  onOpenSystemSetup?: () => void;
+  onOpenAuth: (mode?: 'login' | 'register') => void;
+  onResetSystem?: () => void;
   globalSearchQuery: string;
   onSearchChange: (q: string) => void;
 }
@@ -38,11 +46,16 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenQrScanner,
   onOpenRegisterAsset,
   onOpenRelocate,
+  onOpenSystemSetup,
+  onOpenAuth,
+  onResetSystem,
   globalSearchQuery,
   onSearchChange,
 }) => {
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   // Calculate count of active permissions
-  const activePermissionCount = currentUser.permissions 
+  const activePermissionCount = currentUser?.permissions 
     ? Object.values(currentUser.permissions).filter(Boolean).length 
     : 0;
 
@@ -98,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {/* Quick Action: Register Asset (Guarded by permission) */}
-            {currentUser.permissions?.can_register_assets && (
+            {currentUser?.permissions?.can_register_assets && (
               <button
                 onClick={onOpenRegisterAsset}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-all shadow-sm cursor-pointer"
@@ -109,51 +122,134 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* Organization Selector */}
-            <div className="hidden lg:flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1 text-xs">
-              <Building2 className="w-3.5 h-3.5 text-indigo-400" />
-              <select
-                value={currentOrg.id}
-                onChange={(e) => {
-                  const selected = organizations.find(o => o.id === e.target.value);
-                  if (selected) onSelectOrg(selected);
-                }}
-                className="bg-transparent text-slate-200 font-medium border-none focus:outline-none text-xs cursor-pointer"
-              >
-                {organizations.map(org => (
-                  <option key={org.id} value={org.id} className="bg-slate-900 text-slate-200">
-                    {org.name} ({org.code})
-                  </option>
-                ))}
-              </select>
-            </div>
+            {organizations.length > 0 && (
+              <div className="hidden lg:flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1 text-xs">
+                <Building2 className="w-3.5 h-3.5 text-indigo-400" />
+                <select
+                  value={currentOrg?.id || ''}
+                  onChange={(e) => {
+                    const selected = organizations.find(o => o.id === e.target.value);
+                    if (selected) onSelectOrg(selected);
+                  }}
+                  className="bg-transparent text-slate-200 font-medium border-none focus:outline-none text-xs cursor-pointer"
+                >
+                  {organizations.map(org => (
+                    <option key={org.id} value={org.id} className="bg-slate-900 text-slate-200">
+                      {org.name} ({org.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            {/* Permission Control Switcher / Trigger */}
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+            {onOpenSystemSetup && (
               <button
-                onClick={onOpenPermissionMatrix}
-                className="flex items-center gap-2 p-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-all cursor-pointer text-left"
-                title="Manage Granular User Permissions"
+                onClick={onOpenSystemSetup}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg transition-colors cursor-pointer"
+                title="Initialize Event / Seed Preset Data"
               >
-                {currentUser.avatar_url ? (
-                  <img
-                    src={currentUser.avatar_url}
-                    alt={currentUser.name}
-                    className="w-7 h-7 rounded-full border border-slate-700 object-cover"
-                  />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
-                    {currentUser.name.charAt(0)}
-                  </div>
-                )}
-                
-                <div className="hidden sm:flex flex-col text-left pr-1">
-                  <span className="text-xs font-semibold text-slate-200">{currentUser.name}</span>
-                  <div className="flex items-center gap-1 text-[10px] text-blue-400 font-medium">
-                    <Key className="w-3 h-3 text-indigo-400" />
-                    <span>{activePermissionCount}/12 Permissions</span>
-                  </div>
-                </div>
+                <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden xl:inline">System Setup</span>
               </button>
+            )}
+
+            {/* User Account / Auth Control */}
+            <div className="relative flex items-center gap-2 pl-2 border-l border-slate-800">
+              {currentUser ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-2 p-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition-all cursor-pointer text-left"
+                    title="User Account & Security Matrix"
+                  >
+                    {currentUser.avatar_url ? (
+                      <img
+                        src={currentUser.avatar_url}
+                        alt={currentUser.name}
+                        className="w-7 h-7 rounded-full border border-slate-700 object-cover"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
+                        {currentUser.name.charAt(0)}
+                      </div>
+                    )}
+                    
+                    <div className="hidden sm:flex flex-col text-left pr-1">
+                      <span className="text-xs font-semibold text-slate-200">{currentUser.name}</span>
+                      <div className="flex items-center gap-1 text-[10px] text-blue-400 font-medium">
+                        <Key className="w-3 h-3 text-indigo-400" />
+                        <span>{currentUser.role}</span>
+                      </div>
+                    </div>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:inline" />
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {showUserMenu && (
+                    <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 text-xs">
+                      <div className="px-3.5 py-2 border-b border-slate-800">
+                        <p className="font-bold text-slate-200">{currentUser.name}</p>
+                        <p className="text-[11px] text-slate-400">{currentUser.email}</p>
+                        <span className="inline-block mt-1 text-[10px] font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+                          {currentUser.role} &bull; {currentUser.department || 'Operations'}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => { setShowUserMenu(false); onOpenPermissionMatrix(); }}
+                        className="w-full text-left px-3.5 py-2 text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <Key className="w-4 h-4 text-indigo-400" /> Permission Matrix
+                      </button>
+
+                      <button
+                        onClick={() => { setShowUserMenu(false); onOpenAuth('register'); }}
+                        className="w-full text-left px-3.5 py-2 text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <UserPlus className="w-4 h-4 text-emerald-400" /> Register New Account
+                      </button>
+
+                      <button
+                        onClick={() => { setShowUserMenu(false); onOpenAuth('login'); }}
+                        className="w-full text-left px-3.5 py-2 text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <LogIn className="w-4 h-4 text-blue-400" /> Switch / Sign In Account
+                      </button>
+
+                      {onResetSystem && (
+                        <div className="pt-1 mt-1 border-t border-slate-800">
+                          <button
+                            onClick={() => {
+                              setShowUserMenu(false);
+                              if (window.confirm('Wipe system database and reset to Zero State (0 orgs, 0 assets, 0 users)?')) {
+                                onResetSystem();
+                              }
+                            }}
+                            className="w-full text-left px-3.5 py-2 text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                          >
+                            <RotateCcw className="w-4 h-4 text-rose-400" /> Reset System to 0 Data
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => onOpenAuth('login')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-all cursor-pointer"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-blue-400" /> Sign In
+                  </button>
+                  <button
+                    onClick={() => onOpenAuth('register')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-all shadow-sm cursor-pointer"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" /> Register
+                  </button>
+                </div>
+              )}
             </div>
 
           </div>

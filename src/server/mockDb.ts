@@ -8,9 +8,15 @@ import {
   LocationNode,
   AssetCategory,
   Asset,
+  AssetStatus,
+  AssetDocument,
   AssetLocationHistory,
   AuditLog,
   User,
+  PermissionSet,
+  FULL_ADMIN_PERMISSIONS,
+  STAFF_PERMISSIONS,
+  VIEWER_PERMISSIONS,
   DashboardMetrics,
   PaginatedResult,
   FilterOptions,
@@ -34,80 +40,25 @@ class MockDatabase {
   }
 
   private seedInitialData() {
-    const now = new Date().toISOString();
-
-    // 1. Organizations (Base active org)
-    this.organizations = [
-      {
-        id: 'org-1',
-        name: 'Primary Organization',
-        code: 'ORG-1',
-        address: '100 Enterprise Way',
-        contact_email: 'admin@organization.com',
-        contact_phone: '+1 (555) 000-0000',
-        created_at: now,
-        updated_at: now
-      }
-    ];
-
-    // 2. Users (Base active admin user)
-    this.users = [
-      {
-        id: 'usr-1',
-        organization_id: 'org-1',
-        name: 'System Administrator',
-        email: 'admin@organization.com',
-        role: 'Administrator',
-        permissions: {
-          can_manage_organization: true,
-          can_manage_locations: true,
-          can_register_assets: true,
-          can_edit_assets: true,
-          can_move_assets: true,
-          can_check_out_in: true,
-          can_archive_delete: true,
-          can_view_audit_logs: true,
-          can_export_reports: true,
-          can_manage_users: true,
-          can_configure_db: true,
-          can_ar_scan: true
-        },
-        department: 'Operations',
-        avatar_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150',
-        created_at: now
-      }
-    ];
-
-    // 3. Categories - Empty by default
+    // Zero-State by Default: All collections start clean and empty
+    this.organizations = [];
+    this.users = [];
     this.categories = [];
-
-    // 4. Spatial Locations Hierarchy - Empty by default
     this.locations = [];
-
-    // 5. Assets - Empty by default
     this.assets = [];
-
-    // 6. Location Movement History - Empty by default
     this.locationHistory = [];
+    this.auditLogs = [];
+    this.roomScans = [];
+  }
 
-    // 7. Audit Logs - Clean start with system init log
-    this.auditLogs = [
-      {
-        id: 'aud-init',
-        organization_id: 'org-1',
-        user_id: 'usr-1',
-        user_name: 'System Administrator',
-        user_role: 'Administrator',
-        action: 'created',
-        entity_type: 'organization',
-        entity_id: 'org-1',
-        details: 'Database initialized with zero records. Ready for PostgreSQL integration.',
-        ip_address: '127.0.0.1',
-        timestamp: now
-      }
-    ];
-
-    // 8. AR Room Scan Sessions & Spatial Anchors - Empty by default
+  public clearAllData() {
+    this.organizations = [];
+    this.users = [];
+    this.categories = [];
+    this.locations = [];
+    this.assets = [];
+    this.locationHistory = [];
+    this.auditLogs = [];
     this.roomScans = [];
   }
 
@@ -139,6 +90,83 @@ class MockDatabase {
 
   public getUsers(orgId: string): User[] {
     return this.users.filter(u => u.organization_id === orgId);
+  }
+
+  public getAllUsers(): User[] {
+    return this.users;
+  }
+
+  public loginUser(emailOrId: string): User | undefined {
+    return this.users.find(u => u.email.toLowerCase() === emailOrId.toLowerCase() || u.id === emailOrId || u.name.toLowerCase() === emailOrId.toLowerCase());
+  }
+
+  public registerUser(params: {
+    name: string;
+    email: string;
+    role?: RoleName;
+    department?: string;
+    organization_id?: string;
+    orgName?: string;
+    orgCode?: string;
+    avatar_url?: string;
+  }): { organization: Organization; user: User } {
+    const now = new Date().toISOString();
+    let org: Organization | undefined;
+
+    if (params.organization_id) {
+      org = this.organizations.find(o => o.id === params.organization_id);
+    }
+
+    if (!org) {
+      const orgId = `org-${Date.now()}`;
+      org = {
+        id: orgId,
+        name: params.orgName || (params.name ? `${params.name}'s Organization` : 'Primary Organization'),
+        code: params.orgCode || `ORG-${Math.floor(100 + Math.random() * 900)}`,
+        address: 'Main Facility Address',
+        contact_email: params.email,
+        contact_phone: '+1 (555) 000-0000',
+        created_at: now,
+        updated_at: now
+      };
+      this.organizations.push(org);
+    }
+
+    const isFirstUser = this.users.length === 0;
+    const role: RoleName = params.role || (isFirstUser ? 'Administrator' : 'Staff');
+
+    let permissions: PermissionSet = FULL_ADMIN_PERMISSIONS;
+    if (role === 'Staff' && !isFirstUser) permissions = STAFF_PERMISSIONS;
+    if (role === 'Viewer' && !isFirstUser) permissions = VIEWER_PERMISSIONS;
+
+    const user: User = {
+      id: `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      organization_id: org.id,
+      name: params.name,
+      email: params.email,
+      role: isFirstUser ? 'Administrator' : role,
+      permissions: isFirstUser ? FULL_ADMIN_PERMISSIONS : permissions,
+      department: params.department || 'Operations',
+      avatar_url: params.avatar_url || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150',
+      created_at: now
+    };
+
+    this.users.push(user);
+
+    // Audit log
+    this.addAuditLog({
+      organization_id: org.id,
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role,
+      action: 'created',
+      entity_type: 'user',
+      entity_id: user.id,
+      details: `Registered user account ${user.name} (${user.role}) for organization ${org.name}.`,
+      ip_address: '127.0.0.1'
+    });
+
+    return { organization: org, user };
   }
 
   public getCategories(orgId: string): AssetCategory[] {
@@ -191,11 +219,12 @@ class MockDatabase {
     return breadcrumbs.map(b => b.name).join(' > ');
   }
 
-  public addLocation(data: Omit<LocationNode, 'id' | 'created_at' | 'updated_at'>): LocationNode {
+  public addLocation(data: Omit<LocationNode, 'id' | 'created_at' | 'updated_at' | 'qr_code'> & { qr_code?: string }): LocationNode {
     const now = new Date().toISOString();
     const newLoc: LocationNode = {
       ...data,
-      id: `loc-${Date.now()}`,
+      id: `loc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      qr_code: data.qr_code || `LOC-QR-${data.code || Date.now()}`,
       created_at: now,
       updated_at: now
     };
@@ -302,7 +331,18 @@ class MockDatabase {
     return this.assets.find(a => a.qr_code.trim() === qrCode.trim() && !a.is_deleted);
   }
 
-  public addAsset(data: Omit<Asset, 'id' | 'created_at' | 'updated_at'>, userId: string, userName: string): Asset {
+  public addAsset(
+    data: Partial<Asset> & {
+      organization_id: string;
+      category_id: string;
+      location_id: string;
+      title: string;
+      user_id?: string;
+      user_name?: string;
+    },
+    userId: string = 'usr-admin',
+    userName: string = 'System Admin'
+  ): Asset {
     const now = new Date().toISOString();
     const count = this.assets.length + 1;
     const assetNumber = data.asset_number || `AST-2026-${String(count).padStart(4, '0')}`;
@@ -310,14 +350,22 @@ class MockDatabase {
     const barcode = data.barcode || `BAR-${Math.floor(10000000 + Math.random() * 90000000)}`;
 
     const locationPath = this.formatLocationPath(data.location_id);
+    const effectiveUser = data.user_name || userName;
 
     const newAsset: Asset = {
+      description: '',
+      keywords: [],
+      status: 'available',
+      photos: [],
+      documents: [],
       ...data,
-      id: `ast-${Date.now()}`,
+      id: `ast-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       asset_number: assetNumber,
       qr_code: qrCode,
       barcode: barcode,
       location_path_formatted: locationPath,
+      created_by: data.created_by || effectiveUser,
+      updated_by: data.updated_by || effectiveUser,
       created_at: now,
       updated_at: now
     };
@@ -327,8 +375,8 @@ class MockDatabase {
     // Audit log
     this.addAuditLog({
       organization_id: data.organization_id,
-      user_id: userId,
-      user_name: userName,
+      user_id: data.user_id || userId,
+      user_name: effectiveUser,
       user_role: 'Records Officer',
       action: 'created',
       entity_type: 'asset',
@@ -497,6 +545,207 @@ class MockDatabase {
 
   public getLocationHistory(orgId: string): AssetLocationHistory[] {
     return this.locationHistory.filter(h => h.organization_id === orgId);
+  }
+
+  public bootstrapSystem(params: {
+    orgName: string;
+    orgCode: string;
+    adminName: string;
+    adminEmail?: string;
+    template: 'empty' | 'event_kit' | 'corporate_kit';
+  }): { organization: Organization; user: User } {
+    const now = new Date().toISOString();
+    const orgId = `org-${Date.now()}`;
+    const userId = `usr-${Date.now()}`;
+
+    const organization: Organization = {
+      id: orgId,
+      name: params.orgName,
+      code: params.orgCode,
+      address: 'Event Site / Facility Address',
+      contact_email: params.adminEmail || 'admin@event.org',
+      contact_phone: '+1 (555) 000-0000',
+      created_at: now,
+      updated_at: now
+    };
+
+    const user: User = {
+      id: userId,
+      organization_id: orgId,
+      name: params.adminName,
+      email: params.adminEmail || 'admin@event.org',
+      role: 'Administrator',
+      permissions: {
+        can_manage_organization: true,
+        can_manage_locations: true,
+        can_register_assets: true,
+        can_edit_assets: true,
+        can_move_assets: true,
+        can_check_out_in: true,
+        can_archive_delete: true,
+        can_view_audit_logs: true,
+        can_export_reports: true,
+        can_manage_users: true,
+        can_configure_db: true,
+        can_ar_scan: true
+      },
+      department: 'Operations',
+      avatar_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150',
+      created_at: now
+    };
+
+    this.organizations.push(organization);
+    this.users.push(user);
+
+    if (params.template === 'event_kit') {
+      const bldg = this.addLocation({
+        organization_id: orgId,
+        parent_id: null,
+        type: 'building',
+        code: 'PAV-MAIN',
+        name: 'Main Exhibition Pavilion',
+        description: 'Primary hall for convention keynotes & vendor booths',
+        photo_url: 'https://images.unsplash.com/photo-1587825140708-dfaf72ae4b04?w=600',
+        capacity: 500
+      });
+
+      const avRoom = this.addLocation({
+        organization_id: orgId,
+        parent_id: bldg.id,
+        type: 'room',
+        code: 'RM-AV01',
+        name: 'Audio-Visual Staging Room',
+        description: 'Secure lockup for high-value cameras & soundboards',
+        capacity: 50
+      });
+
+      const stageCabinet = this.addLocation({
+        organization_id: orgId,
+        parent_id: avRoom.id,
+        type: 'storage_unit',
+        code: 'CAB-STAGE',
+        name: 'Stage Equipment Rolling Rack A',
+        description: 'Flight case with wheels',
+        capacity: 20
+      });
+
+      const catAV = this.addCategory({
+        organization_id: orgId,
+        name: 'Audio Visual Equipment',
+        code: 'AV-EQUIP',
+        color: 'bg-blue-500',
+        description: 'Microphones, mixers, and projectors'
+      });
+
+      const catDisplay = this.addCategory({
+        organization_id: orgId,
+        name: 'Interactive Kiosks & Screens',
+        code: 'DISP-KIOSK',
+        color: 'bg-indigo-500',
+        description: 'Touchscreen signages & tablets'
+      });
+
+      const catIT = this.addCategory({
+        organization_id: orgId,
+        name: 'Stage Computing & Laptops',
+        code: 'IT-COMP',
+        color: 'bg-emerald-500',
+        description: 'Control laptops and routers'
+      });
+
+      this.addAsset({
+        organization_id: orgId,
+        category_id: catAV.id,
+        location_id: stageCabinet.id,
+        title: 'Shure Wireless Mic System (4-Pack)',
+        description: 'Dual channel UHF wireless receiver kit with bodypacks',
+        keywords: ['microphone', 'wireless', 'audio', 'shure', 'stage'],
+        photos: ['https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=600'],
+        user_id: userId,
+        user_name: user.name
+      });
+
+      this.addAsset({
+        organization_id: orgId,
+        category_id: catDisplay.id,
+        location_id: avRoom.id,
+        title: '4K Touchscreen Presentation Kiosk #01',
+        description: '55-inch interactive floor stand presentation screen',
+        keywords: ['kiosk', 'display', '4k', 'touchscreen'],
+        photos: ['https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=600'],
+        user_id: userId,
+        user_name: user.name
+      });
+
+      this.addAsset({
+        organization_id: orgId,
+        category_id: catIT.id,
+        location_id: stageCabinet.id,
+        title: 'MacBook Pro M3 Stage Controller',
+        description: 'Main slide deck and video playback laptop',
+        keywords: ['apple', 'macbook', 'laptop', 'control'],
+        photos: ['https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=600'],
+        user_id: userId,
+        user_name: user.name
+      });
+    } else if (params.template === 'corporate_kit') {
+      const bldg = this.addLocation({
+        organization_id: orgId,
+        parent_id: null,
+        type: 'building',
+        code: 'BLDG-HQ',
+        name: 'Corporate Headquarters',
+        description: 'Main enterprise office building',
+        capacity: 200
+      });
+
+      const floor = this.addLocation({
+        organization_id: orgId,
+        parent_id: bldg.id,
+        type: 'floor',
+        code: 'FL-01',
+        name: 'Floor 1 Executive Suites',
+        capacity: 100
+      });
+
+      const vault = this.addLocation({
+        organization_id: orgId,
+        parent_id: floor.id,
+        type: 'room',
+        code: 'RM-V101',
+        name: 'Archival Storage Vault 101',
+        capacity: 30
+      });
+
+      const catLegal = this.addCategory({
+        organization_id: orgId,
+        name: 'Legal & Contract Binders',
+        code: 'LEG-BIND',
+        color: 'bg-purple-500',
+        description: 'Original wet-signature agreements'
+      });
+
+      const catIT = this.addCategory({
+        organization_id: orgId,
+        name: 'IT Hardware & Workstations',
+        code: 'IT-HW',
+        color: 'bg-cyan-500',
+        description: 'Laptops, servers, switches'
+      });
+
+      this.addAsset({
+        organization_id: orgId,
+        category_id: catLegal.id,
+        location_id: vault.id,
+        title: 'Master Facility Deed & Articles of Incorporation',
+        description: 'Original legal documentation binder 2020-2030',
+        keywords: ['deed', 'legal', 'binder', 'vault'],
+        user_id: userId,
+        user_name: user.name
+      });
+    }
+
+    return { organization, user };
   }
 
   public getAuditLogs(orgId: string): AuditLog[] {

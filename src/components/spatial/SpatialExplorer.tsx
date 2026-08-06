@@ -245,14 +245,24 @@ export const SpatialExplorer: React.FC<SpatialExplorerProps> = ({
         </div>
 
         {childLocations.length === 0 ? (
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-8 text-center space-y-3">
-            <Box className="w-10 h-10 text-slate-600 mx-auto" />
-            <p className="text-xs text-slate-400">No further sub-locations inside this spatial container.</p>
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+            <Building className="w-10 h-10 text-indigo-400/60 mx-auto" />
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-white">
+                {selectedLocationId === null ? 'No Buildings or Facilities Created Yet' : 'No Sub-Locations inside this Spatial Container'}
+              </h4>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                {selectedLocationId === null
+                  ? 'Start indoor spatial mapping by creating your first primary building, exhibition pavilion, or archive site.'
+                  : 'Add child rooms, floors, rolling cabinets, or storage boxes to organize assets within this area.'}
+              </p>
+            </div>
             <button
               onClick={() => onOpenAddLocation(selectedLocationId)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-lg shadow-blue-600/25 transition-all cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" /> Add Child Compartment or Cabinet
+              <Plus className="w-4 h-4" />
+              {selectedLocationId === null ? 'Add First Facility / Building' : 'Add Child Location / Storage Unit'}
             </button>
           </div>
         ) : (
