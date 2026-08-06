@@ -279,5 +279,52 @@ export const api = {
       body: JSON.stringify(config)
     });
     return res.data;
+  },
+
+  // Authentication & User Accounts
+  async registerUser(data: {
+    name: string;
+    email: string;
+    role?: string;
+    department?: string;
+    organization_id?: string;
+    orgName?: string;
+    orgCode?: string;
+    avatar_url?: string;
+  }): Promise<{ organization: Organization; user: User }> {
+    const res = await fetchJson<{ data: { organization: Organization; user: User } }>(`${BASE_URL}/auth/register`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async loginUser(emailOrId: string): Promise<{ organization: Organization; user: User }> {
+    const res = await fetchJson<{ data: { organization: Organization; user: User } }>(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify({ emailOrId })
+    });
+    return res.data;
+  },
+
+  async resetSystem(): Promise<void> {
+    await fetchJson(`${BASE_URL}/system/reset`, {
+      method: 'POST'
+    });
+  },
+
+  // System Onboarding & Initialization
+  async bootstrapSystem(data: {
+    orgName: string;
+    orgCode: string;
+    adminName: string;
+    adminEmail?: string;
+    template?: 'empty' | 'event_kit' | 'corporate_kit';
+  }): Promise<{ organization: Organization; user: User }> {
+    const res = await fetchJson<{ data: { organization: Organization; user: User } }>(`${BASE_URL}/system/bootstrap`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+    return res.data;
   }
 };

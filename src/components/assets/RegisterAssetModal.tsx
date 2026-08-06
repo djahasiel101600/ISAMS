@@ -67,7 +67,9 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
   const [newCategoryDesc, setNewCategoryDesc] = useState('');
 
   // Location & Details
-  const [locationId, setLocationId] = useState(initialLocationId || locations[0]?.id || '');
+  const initialLoc = initialLocationId || locations[0]?.id || 'auto_create_default';
+  const [locationIdState, setLocationId] = useState(initialLoc);
+  const locationId = locationIdState || initialLoc;
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
@@ -310,18 +312,25 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
               <MapPin className="w-3.5 h-3.5 text-emerald-400" />
               Spatial Storage Location <span className="text-rose-400">*</span>
             </label>
-            <select
-              required
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            >
-              {locations.map(l => (
-                <option key={l.id} value={l.id}>
-                  [{l.type}] {l.code} - {l.name}
-                </option>
-              ))}
-            </select>
+            {locations.length > 0 ? (
+              <select
+                required
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono cursor-pointer"
+              >
+                {locations.map(l => (
+                  <option key={l.id} value={l.id}>
+                    [{l.type}] {l.code} - {l.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between gap-3">
+                <span className="text-xs text-amber-400">No spatial locations created yet.</span>
+                <span className="text-[11px] text-slate-400">Main Staging Node will be auto-generated upon registration.</span>
+              </div>
+            )}
           </div>
 
           {/* Description */}

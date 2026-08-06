@@ -40,6 +40,76 @@ async function startServer() {
     });
   });
 
+  // System Reset (Wipe all data to 0)
+  app.post('/api/v1/system/reset', (req: Request, res: Response) => {
+    try {
+      db.clearAllData();
+      res.json({ status: 'success', message: 'System reset to zero state successfully' });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
+  // Auth & User Registration
+  app.post('/api/v1/auth/register', (req: Request, res: Response) => {
+    try {
+      const { name, email, role, department, organization_id, orgName, orgCode, avatar_url } = req.body;
+      if (!name || !email) {
+        return res.status(400).json({ status: 'error', message: 'User name and email are required' });
+      }
+      const result = db.registerUser({
+        name,
+        email,
+        role,
+        department,
+        organization_id,
+        orgName,
+        orgCode,
+        avatar_url
+      });
+      res.status(201).json({ status: 'success', data: result });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
+  app.post('/api/v1/auth/login', (req: Request, res: Response) => {
+    try {
+      const { emailOrId } = req.body;
+      if (!emailOrId) {
+        return res.status(400).json({ status: 'error', message: 'Email or User ID is required' });
+      }
+      const user = db.loginUser(emailOrId);
+      if (!user) {
+        return res.status(404).json({ status: 'error', message: 'User account not found' });
+      }
+      const org = db.getOrganizationById(user.organization_id);
+      res.json({ status: 'success', data: { user, organization: org } });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
+  // System Bootstrap & Initialization
+  app.post('/api/v1/system/bootstrap', (req: Request, res: Response) => {
+    try {
+      const { orgName, orgCode, adminName, adminEmail, template } = req.body;
+      if (!orgName || !orgCode || !adminName) {
+        return res.status(400).json({ status: 'error', message: 'Organization name, code, and admin name are required' });
+      }
+      const result = db.bootstrapSystem({
+        orgName,
+        orgCode,
+        adminName,
+        adminEmail,
+        template: template || 'empty'
+      });
+      res.status(201).json({ status: 'success', data: result });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
   // 1. Organizations
   app.get('/api/v1/organizations', (req: Request, res: Response) => {
     const orgs = db.getOrganizations();
