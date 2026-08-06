@@ -1,6 +1,6 @@
 /**
  * ISAMS - API Client Service
- * Interacts with backend Express endpoints /api/v1/*
+ * Interacts with backend Express (/api/v1) or external Django REST Framework APIs
  */
 
 import {
@@ -16,33 +16,111 @@ import {
   FilterOptions
 } from '../types/isams';
 
-const BASE_URL = '/api/v1';
+export interface BackendConfig {
+  baseUrl: string;
+  isDjango: boolean;
+  authToken?: string;
+}
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+export function getApiBaseUrl(): string {
+  const customUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('isams_custom_api_url') : null;
+  if (customUrl) return customUrl;
+  const envUrl = (import.meta as any).env?.VITE_DJANGO_BACKEND_URL;
+  if (envUrl) return envUrl;
+  return '/api/v1';
+}
+
+export function isDjangoBackend(): boolean {
+  if (typeof localStorage !== 'undefined') {
+    const flag = localStorage.getItem('isams_use_django');
+    if (flag !== null) return flag === 'true';
+  }
+  return Boolean((import.meta as any).env?.VITE_DJANGO_BACKEND_URL);
+}
+
+export function getAuthToken(): string {
+  if (typeof localStorage !== 'undefined') {
+    return localStorage.getItem('isams_auth_token') || '';
+  }
+  return '';
+}
+
+async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const baseUrl = getApiBaseUrl().replace(/\/$/, '');
+  const isDjango = isDjangoBackend();
+  const token = getAuthToken();
+
+  // Django DRF trailing slash convention
+  let url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+  if (isDjango && !url.endsWith('/') && !url.includes('?')) {
+    url = `${url}/`;
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: isDjango ? `Token ${token}` : `Bearer ${token}` } : {}),
+    ...(options?.headers as Record<string, string> || {})
+  };
+
   const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers
-    },
+    headers,
     ...options
   });
 
   const data = await response.json();
   if (!response.ok || data.status === 'error') {
-    throw new Error(data.message || 'API Request Failed');
+    throw new Error(data.message || data.detail || 'API Request Failed');
   }
-  return data;
+
+  // Handle Django DRF standard response structure vs Express { status, data } response
+  if (data.status === 'success' && data.data !== undefined) {
+    return data;
+  }
+  
+  // DRF direct data array/object wrapper
+  return { status: 'success', data: data.results || data } as any;
 }
 
+
 export const api = {
+  // Backend Configuration Management
+  setBackendConfig(config: { baseUrl: string; isDjango: boolean; authToken?: string }): void {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('isams_custom_api_url', config.baseUrl);
+      localStorage.setItem('isams_use_django', String(config.isDjango));
+      if (config.authToken !== undefined) {
+        localStorage.setItem('isams_auth_token', config.authToken);
+      }
+    }
+  },
+
+  async testDjangoConnection(baseUrl: string, token?: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const cleanUrl = baseUrl.replace(/\/$/, '');
+      const pingEndpoint = `${cleanUrl}/organizations/`;
+      const response = await fetch(pingEndpoint, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Token ${token}` } : {})
+        }
+      });
+      if (response.ok) {
+        return { success: true, message: `Successfully connected to Django REST API at ${cleanUrl}` };
+      }
+      return { success: false, message: `Server responded with status HTTP ${response.status}: ${response.statusText}` };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Network error attempting to reach Django server' };
+    }
+  },
+
   // Organizations
   async getOrganizations(): Promise<Organization[]> {
-    const res = await fetchJson<{ data: Organization[] }>(`${BASE_URL}/organizations`);
+    const res = await fetchJson<{ data: Organization[] }>('/organizations');
     return res.data;
   },
 
   async createOrganization(org: Partial<Organization>): Promise<Organization> {
-    const res = await fetchJson<{ data: Organization }>(`${BASE_URL}/organizations`, {
+    const res = await fetchJson<{ data: Organization }>('/organizations', {
       method: 'POST',
       body: JSON.stringify(org)
     });
@@ -51,18 +129,18 @@ export const api = {
 
   // Users
   async getUsers(orgId: string = 'org-1'): Promise<User[]> {
-    const res = await fetchJson<{ data: User[] }>(`${BASE_URL}/users?org_id=${orgId}`);
+    const res = await fetchJson<{ data: User[] }>(`/users?org_id=${orgId}`);
     return res.data;
   },
 
   // Categories
   async getCategories(orgId: string = 'org-1'): Promise<AssetCategory[]> {
-    const res = await fetchJson<{ data: AssetCategory[] }>(`${BASE_URL}/categories?org_id=${orgId}`);
+    const res = await fetchJson<{ data: AssetCategory[] }>(`/categories?org_id=${orgId}`);
     return res.data;
   },
 
   async createCategory(cat: Partial<AssetCategory>): Promise<AssetCategory> {
-    const res = await fetchJson<{ data: AssetCategory }>(`${BASE_URL}/categories`, {
+    const res = await fetchJson<{ data: AssetCategory }>('/categories', {
       method: 'POST',
       body: JSON.stringify(cat)
     });
@@ -71,12 +149,12 @@ export const api = {
 
   // Locations
   async getLocations(orgId: string = 'org-1'): Promise<LocationNode[]> {
-    const res = await fetchJson<{ data: LocationNode[] }>(`${BASE_URL}/locations?org_id=${orgId}`);
+    const res = await fetchJson<{ data: LocationNode[] }>(`/locations?org_id=${orgId}`);
     return res.data;
   },
 
   async getLocationById(id: string): Promise<LocationNode & { breadcrumbs: LocationNode[] }> {
-    const res = await fetchJson<{ data: LocationNode & { breadcrumbs: LocationNode[] } }>(`${BASE_URL}/locations/${id}`);
+    const res = await fetchJson<{ data: LocationNode & { breadcrumbs: LocationNode[] } }>(`/locations/${id}`);
     return res.data;
   },
 
@@ -90,7 +168,7 @@ export const api = {
     photo_url?: string;
     capacity?: number;
   }): Promise<LocationNode> {
-    const res = await fetchJson<{ data: LocationNode }>(`${BASE_URL}/locations`, {
+    const res = await fetchJson<{ data: LocationNode }>('/locations', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -110,16 +188,16 @@ export const api = {
     if (options.sort_by) params.set('sort_by', options.sort_by);
     if (options.sort_dir) params.set('sort_dir', options.sort_dir);
 
-    return await fetchJson<PaginatedResult<Asset>>(`${BASE_URL}/assets?${params.toString()}`);
+    return await fetchJson<PaginatedResult<Asset>>(`/assets?${params.toString()}`);
   },
 
   async getAssetById(id: string): Promise<Asset> {
-    const res = await fetchJson<{ data: Asset }>(`${BASE_URL}/assets/${id}`);
+    const res = await fetchJson<{ data: Asset }>(`/assets/${id}`);
     return res.data;
   },
 
   async getAssetByQrCode(qrCode: string): Promise<Asset> {
-    const res = await fetchJson<{ data: Asset }>(`${BASE_URL}/assets/qr/${encodeURIComponent(qrCode)}`);
+    const res = await fetchJson<{ data: Asset }>(`/assets/qr/${encodeURIComponent(qrCode)}`);
     return res.data;
   },
 
@@ -134,7 +212,7 @@ export const api = {
     user_id?: string;
     user_name?: string;
   }): Promise<Asset> {
-    const res = await fetchJson<{ data: Asset }>(`${BASE_URL}/assets`, {
+    const res = await fetchJson<{ data: Asset }>('/assets', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -149,7 +227,7 @@ export const api = {
     user_name?: string
   ): Promise<{ asset: Asset; history: AssetLocationHistory }> {
     const res = await fetchJson<{ data: { asset: Asset; history: AssetLocationHistory } }>(
-      `${BASE_URL}/assets/${assetId}/move`,
+      `/assets/${assetId}/move`,
       {
         method: 'POST',
         body: JSON.stringify({ new_location_id: newLocationId, reason, user_id, user_name })
@@ -166,7 +244,7 @@ export const api = {
     user_id?: string,
     user_name?: string
   ): Promise<Asset> {
-    const res = await fetchJson<{ data: Asset }>(`${BASE_URL}/assets/${assetId}/check-out`, {
+    const res = await fetchJson<{ data: Asset }>(`/assets/${assetId}/check-out`, {
       method: 'POST',
       body: JSON.stringify({ borrower_name: borrowerName, due_date: dueDate, notes, user_id, user_name })
     });
@@ -174,7 +252,7 @@ export const api = {
   },
 
   async checkInAsset(assetId: string, user_id?: string, user_name?: string): Promise<Asset> {
-    const res = await fetchJson<{ data: Asset }>(`${BASE_URL}/assets/${assetId}/check-in`, {
+    const res = await fetchJson<{ data: Asset }>(`/assets/${assetId}/check-in`, {
       method: 'POST',
       body: JSON.stringify({ user_id, user_name })
     });
@@ -183,35 +261,35 @@ export const api = {
 
   // QR Code Rendering Data URL
   async renderQrCode(text: string): Promise<string> {
-    const res = await fetchJson<{ data: { data_url: string } }>(`${BASE_URL}/qr/render?text=${encodeURIComponent(text)}`);
+    const res = await fetchJson<{ data: { data_url: string } }>(`/qr/render?text=${encodeURIComponent(text)}`);
     return res.data.data_url;
   },
 
   // History & Audit Logs
   async getMovementHistory(orgId: string = 'org-1'): Promise<AssetLocationHistory[]> {
-    const res = await fetchJson<{ data: AssetLocationHistory[] }>(`${BASE_URL}/movement-history?org_id=${orgId}`);
+    const res = await fetchJson<{ data: AssetLocationHistory[] }>(`/movement-history?org_id=${orgId}`);
     return res.data;
   },
 
   async getAuditLogs(orgId: string = 'org-1'): Promise<AuditLog[]> {
-    const res = await fetchJson<{ data: AuditLog[] }>(`${BASE_URL}/audit-logs?org_id=${orgId}`);
+    const res = await fetchJson<{ data: AuditLog[] }>(`/audit-logs?org_id=${orgId}`);
     return res.data;
   },
 
   // Dashboard Metrics
   async getDashboardMetrics(orgId: string = 'org-1'): Promise<DashboardMetrics> {
-    const res = await fetchJson<{ data: DashboardMetrics }>(`${BASE_URL}/dashboard/metrics?org_id=${orgId}`);
+    const res = await fetchJson<{ data: DashboardMetrics }>(`/dashboard/metrics?org_id=${orgId}`);
     return res.data;
   },
 
   // AR Room Scans & Spatial Annotations
   async getRoomScans(orgId: string = 'org-1'): Promise<any[]> {
-    const res = await fetchJson<{ data: any[] }>(`${BASE_URL}/room-scans?org_id=${orgId}`);
+    const res = await fetchJson<{ data: any[] }>(`/room-scans?org_id=${orgId}`);
     return res.data;
   },
 
   async getRoomScanById(id: string): Promise<any> {
-    const res = await fetchJson<{ data: any }>(`${BASE_URL}/room-scans/${id}`);
+    const res = await fetchJson<{ data: any }>(`/room-scans/${id}`);
     return res.data;
   },
 
@@ -223,7 +301,7 @@ export const api = {
     background_image?: string;
     paired_device_name?: string;
   }): Promise<any> {
-    const res = await fetchJson<{ data: any }>(`${BASE_URL}/room-scans`, {
+    const res = await fetchJson<{ data: any }>('/room-scans', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -231,7 +309,7 @@ export const api = {
   },
 
   async addAnchorToRoomScan(scanId: string, data: any): Promise<any> {
-    const res = await fetchJson<{ data: any }>(`${BASE_URL}/room-scans/${scanId}/anchors`, {
+    const res = await fetchJson<{ data: any }>(`/room-scans/${scanId}/anchors`, {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -239,20 +317,20 @@ export const api = {
   },
 
   async deleteAnchorFromRoomScan(scanId: string, anchorId: string): Promise<void> {
-    await fetchJson(`${BASE_URL}/room-scans/${scanId}/anchors/${anchorId}`, {
+    await fetchJson(`/room-scans/${scanId}/anchors/${anchorId}`, {
       method: 'DELETE'
     });
   },
 
   async pairMobileSession(): Promise<{ pair_code: string; pair_url: string }> {
-    const res = await fetchJson<{ data: { pair_code: string; pair_url: string } }>(`${BASE_URL}/room-scans/pair-session`, {
+    const res = await fetchJson<{ data: { pair_code: string; pair_url: string } }>('/room-scans/pair-session', {
       method: 'POST'
     });
     return res.data;
   },
 
   async aiAnalyzeFrame(imageBase64?: string): Promise<any> {
-    const res = await fetchJson<{ data: any }>(`${BASE_URL}/room-scans/ai-analyze-frame`, {
+    const res = await fetchJson<{ data: any }>('/room-scans/ai-analyze-frame', {
       method: 'POST',
       body: JSON.stringify({ image_base64: imageBase64 })
     });
@@ -261,12 +339,12 @@ export const api = {
 
   // Database Integration & Diagnostics
   async getDbStatus(): Promise<any> {
-    const res = await fetchJson<{ data: any }>(`${BASE_URL}/db-integration/status`);
+    const res = await fetchJson<{ data: any }>('/db-integration/status');
     return res.data;
   },
 
   async testDbConnection(config: any): Promise<{ success: boolean; message: string }> {
-    const res = await fetchJson<{ data: { success: boolean; message: string } }>(`${BASE_URL}/db-integration/test`, {
+    const res = await fetchJson<{ data: { success: boolean; message: string } }>('/db-integration/test', {
       method: 'POST',
       body: JSON.stringify(config)
     });
@@ -274,7 +352,7 @@ export const api = {
   },
 
   async saveDbConfig(config: any): Promise<any> {
-    const res = await fetchJson<{ data: any }>(`${BASE_URL}/db-integration/config`, {
+    const res = await fetchJson<{ data: any }>('/db-integration/config', {
       method: 'POST',
       body: JSON.stringify(config)
     });
@@ -292,7 +370,7 @@ export const api = {
     orgCode?: string;
     avatar_url?: string;
   }): Promise<{ organization: Organization; user: User }> {
-    const res = await fetchJson<{ data: { organization: Organization; user: User } }>(`${BASE_URL}/auth/register`, {
+    const res = await fetchJson<{ data: { organization: Organization; user: User } }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -300,7 +378,7 @@ export const api = {
   },
 
   async loginUser(emailOrId: string): Promise<{ organization: Organization; user: User }> {
-    const res = await fetchJson<{ data: { organization: Organization; user: User } }>(`${BASE_URL}/auth/login`, {
+    const res = await fetchJson<{ data: { organization: Organization; user: User } }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ emailOrId })
     });
@@ -308,7 +386,7 @@ export const api = {
   },
 
   async resetSystem(): Promise<void> {
-    await fetchJson(`${BASE_URL}/system/reset`, {
+    await fetchJson('/system/reset', {
       method: 'POST'
     });
   },
@@ -321,7 +399,7 @@ export const api = {
     adminEmail?: string;
     template?: 'empty' | 'event_kit' | 'corporate_kit';
   }): Promise<{ organization: Organization; user: User }> {
-    const res = await fetchJson<{ data: { organization: Organization; user: User } }>(`${BASE_URL}/system/bootstrap`, {
+    const res = await fetchJson<{ data: { organization: Organization; user: User } }>('/system/bootstrap', {
       method: 'POST',
       body: JSON.stringify(data)
     });
