@@ -17,6 +17,7 @@ import { QrStudioView } from './components/qr/QrStudioView';
 import { AuditTrailView } from './components/audit/AuditTrailView';
 import { ReportsView } from './components/reports/ReportsView';
 import { ArRoomScannerView } from './components/ar/ArRoomScannerView';
+import { ArMobilePairView } from './components/ar/ArMobilePairView.tsx';
 import { DatabaseIntegrationView } from './components/db/DatabaseIntegrationView';
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AddLocationModal } from './components/spatial/AddLocationModal';
@@ -44,6 +45,8 @@ import {
 export default function App() {
   // Navigation & Active View State
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [locationsLoading, setLocationsLoading] = useState(false);
+
 
   // Enterprise Data State
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -84,6 +87,12 @@ export default function App() {
   const [isSystemSetupOpen, setIsSystemSetupOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDjangoModalOpen, setIsDjangoModalOpen] = useState(false);
+  const [isAppReady, setIsAppReady] = useState(false);
+
+  const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+  if (currentPath === '/ar') {
+    return <ArMobilePairView />;
+  }
 
   // System Setup / Onboarding Handler
   const handleInitializeSystem = async (data: {
@@ -95,7 +104,7 @@ export default function App() {
   }) => {
     const res = await api.bootstrapSystem(data);
     setIsSystemSetupOpen(false);
-    await loadInitialData();
+    await loadInitialData(res.user || null);
     if (res.organization) setCurrentOrg(res.organization);
     if (res.user) setCurrentUser(res.user);
   };
@@ -104,7 +113,7 @@ export default function App() {
     setCurrentOrg(org);
     setCurrentUser(user);
     setIsAuthModalOpen(false);
-    await loadInitialData();
+    await loadInitialData(user);
   };
 
   const handleResetSystem = async () => {
@@ -127,31 +136,22 @@ export default function App() {
   };
 
   // 1. Initial Data Fetching
-  const loadInitialData = useCallback(async () => {
+  const loadInitialData = useCallback(async (preservedUser: User | null = null) => {
+    setIsAppReady(false);
     try {
       const orgs = await api.getOrganizations();
       setOrganizations(orgs);
-      const defaultOrg = orgs[0] || null;
+      const userOrg = preservedUser ? orgs.find((org) => org.id === preservedUser.organization_id) : null;
+      const defaultOrg = userOrg || orgs[0] || null;
       setCurrentOrg(defaultOrg);
 
       if (defaultOrg) {
         const orgUsers = await api.getUsers(defaultOrg.id);
         setUsers(orgUsers);
-        
-        // Retain current user if valid, or default to first
-        setCurrentUser(prevUser => {
-          if (prevUser && orgUsers.some(u => u.id === prevUser.id)) {
-            const found = orgUsers.find(u => u.id === prevUser.id)!;
-            return {
-              ...found,
-              permissions: found.permissions || FULL_ADMIN_PERMISSIONS
-            };
-          }
-          return orgUsers[0] ? {
-            ...orgUsers[0],
-            permissions: orgUsers[0].permissions || FULL_ADMIN_PERMISSIONS
-          } : null;
-        });
+        setCurrentUser(preservedUser || (orgUsers[0] ? {
+          ...orgUsers[0],
+          permissions: orgUsers[0].permissions || FULL_ADMIN_PERMISSIONS
+        } : null));
 
         const cats = await api.getCategories(defaultOrg.id);
         setCategories(cats);
@@ -179,6 +179,8 @@ export default function App() {
       }
     } catch (err) {
       console.error('[ISAMS] Error loading initial data:', err);
+    } finally {
+      setIsAppReady(true);
     }
   }, []);
 
@@ -187,15 +189,16 @@ export default function App() {
   }, [loadInitialData]);
 
   // 2. Fetch Assets when Filters or Search Change
-  const refreshAssets = useCallback(async () => {
+  const refreshAssets = useCallback(async (pageOverride?: number) => {
     if (!currentOrg) return;
     try {
+      const effectivePage = pageOverride ?? page;
       const result = await api.getAssets(currentOrg.id, {
         search: globalSearchQuery,
         category_id: selectedCategoryId,
         status: selectedStatus,
         location_id: selectedLocationId === 'all' ? undefined : selectedLocationId,
-        page,
+        page: effectivePage,
         limit: 20
       });
       setPaginatedAssets(result);
@@ -218,13 +221,38 @@ export default function App() {
     refreshAssets();
   }, [refreshAssets]);
 
+  useEffect(() => {
+    // When switching to spatial tab, refresh locations
+    if (activeTab === 'spatial' && currentOrg) {
+      console.log('Spatial tab activated, refreshing locations...');
+      refreshLocations();
+    }
+  }, [activeTab, currentOrg]);
+
+  // Add this function if you don't have it
+  const refreshLocations = useCallback(async () => {
+    if (!currentOrg) return;
+    try {
+      console.log('Refreshing locations for organization:', currentOrg.id);
+      const locs = await api.getLocations(currentOrg.id);
+      console.log('Locations loaded:', locs.length);
+      setLocations(locs);
+    } catch (err) {
+      console.error('Failed to refresh locations:', err);
+    }
+  }, [currentOrg]);
+
+
   // 3. Permission Management Handler
-  const handleUpdatePermissions = (newPermissions: PermissionSet) => {
-    if (currentUser) {
-      setCurrentUser({
-        ...currentUser,
-        permissions: newPermissions
-      });
+  const handleUpdatePermissions = async (newPermissions: PermissionSet) => {
+    if (!currentUser) return;
+    try {
+      const updatedUser = await api.updateUser(currentUser.id, { permissions: newPermissions });
+      setCurrentUser(updatedUser);
+      setUsers((prevUsers) => prevUsers.map((user) => user.id === updatedUser.id ? updatedUser : user));
+    } catch (err: any) {
+      console.error('Failed to persist permission updates:', err);
+      alert(`Unable to save permission changes: ${err.message || err}`);
     }
   };
 
@@ -233,7 +261,7 @@ export default function App() {
     title: string;
     organization_id: string;
     category_id: string;
-    location_id: string;
+    location_id?: string;
     description: string;
     keywords: string;
     photos: string[];
@@ -244,50 +272,100 @@ export default function App() {
     try {
       let targetOrgId = currentOrg?.id || 'org-1';
 
-      // If user supplied a new organization, create it first
+      // If user supplied a new organization, create it first (or reuse existing org with same code)
       if (data.newOrganization) {
-        const createdOrg = await api.createOrganization({
-          name: data.newOrganization.name,
-          code: data.newOrganization.code,
-          contact_email: data.newOrganization.contact_email || ''
-        });
-        targetOrgId = createdOrg.id;
-        const updatedOrgs = await api.getOrganizations();
-        setOrganizations(updatedOrgs);
-        setCurrentOrg(createdOrg);
+        const newOrg = data.newOrganization;
+        const existingOrg = organizations.find(org => org.code.toLowerCase() === newOrg.code.toLowerCase());
+        if (existingOrg) {
+          targetOrgId = existingOrg.id;
+          setCurrentOrg(existingOrg);
+        } else {
+          try {
+            const createdOrg = await api.createOrganization({
+              name: newOrg.name,
+              code: newOrg.code,
+              contact_email: newOrg.contact_email || ''
+            });
+            targetOrgId = createdOrg.id;
+            const updatedOrgs = await api.getOrganizations();
+            setOrganizations(updatedOrgs);
+            setCurrentOrg(createdOrg);
+          } catch (err: any) {
+            const refreshedOrgs = await api.getOrganizations();
+            setOrganizations(refreshedOrgs);
+            const duplicateOrg = refreshedOrgs.find(org => org.code.toLowerCase() === newOrg.code.toLowerCase());
+            if (duplicateOrg) {
+              targetOrgId = duplicateOrg.id;
+              setCurrentOrg(duplicateOrg);
+            } else {
+              throw err;
+            }
+          }
+        }
       } else if (data.organization_id && data.organization_id !== 'pending_new_org') {
         targetOrgId = data.organization_id;
       }
 
-      // If user supplied a new category, create it first
+      // If user supplied a new category, create it first (or reuse existing category with same code)
       let targetCatId = data.category_id;
       if (data.newCategory) {
-        const createdCat = await api.createCategory({
-          organization_id: targetOrgId,
-          name: data.newCategory.name,
-          code: data.newCategory.code,
-          description: data.newCategory.description || '',
-          icon_name: 'FileText',
-          color: 'bg-blue-500'
-        });
-        targetCatId = createdCat.id;
-        const updatedCats = await api.getCategories(targetOrgId);
-        setCategories(updatedCats);
+        const newCategory = data.newCategory;
+        const existingCat = categories.find(
+          cat => cat.organization_id === targetOrgId && cat.code.toLowerCase() === newCategory.code.toLowerCase()
+        );
+        if (existingCat) {
+          targetCatId = existingCat.id;
+        } else {
+          try {
+            const createdCat = await api.createCategory({
+              organization_id: targetOrgId,
+              name: newCategory.name,
+              code: newCategory.code,
+              description: newCategory.description || '',
+              icon_name: 'FileText',
+              color: 'bg-blue-500'
+            });
+            targetCatId = createdCat.id;
+            const updatedCats = await api.getCategories(targetOrgId);
+            setCategories(updatedCats);
+          } catch (err: any) {
+            const refreshedCats = await api.getCategories(targetOrgId);
+            setCategories(refreshedCats);
+            const duplicateCat = refreshedCats.find(
+              cat => cat.organization_id === targetOrgId && cat.code.toLowerCase() === newCategory.code.toLowerCase()
+            );
+            if (duplicateCat) {
+              targetCatId = duplicateCat.id;
+            } else {
+              throw err;
+            }
+          }
+        }
       }
 
       // Register Asset
+      const keywordArray = data.keywords
+        .split(',')
+        .map((keyword) => keyword.trim())
+        .filter(Boolean);
+
       await api.createAsset({
         title: data.title,
-        category_id: targetCatId,
-        location_id: data.location_id,
+        category: targetCatId,
+        current_location: data.location_id,
         description: data.description,
-        keywords: data.keywords,
+        keywords: keywordArray,
         photos: data.photos,
-        organization_id: targetOrgId,
+        organization: targetOrgId,
         user_id: currentUser.id,
         user_name: currentUser.name
       });
-      await refreshAssets();
+      setGlobalSearchQuery('');
+      setSelectedCategoryId('all');
+      setSelectedStatus('all');
+      setSelectedLocationId('all');
+      setPage(1);
+      await refreshAssets(1);
     } catch (err: any) {
       alert(`Failed to register asset: ${err.message}`);
     }
@@ -345,13 +423,37 @@ export default function App() {
   const handleAddLocationSubmit = async (data: any) => {
     if (!currentOrg) return;
     try {
-      await api.createLocation({
-        ...data,
-        organization_id: currentOrg.id
-      });
+      // Map the type to a valid choice if needed
+      let locationType = data.type;
+      
+      // If 'storage_unit' is not in your model choices, map it to something valid
+      const validTypes = ['building', 'floor', 'department', 'room', 'cabinet', 'shelf', 'drawer', 'box', 'vault', 'equipment', 'area'];
+      if (locationType === 'storage_unit' && !validTypes.includes(locationType)) {
+        locationType = 'cabinet'; // Map storage_unit to cabinet
+        console.warn(`Mapping "storage_unit" to "cabinet"`);
+      }
+      
+      const locationData = {
+        organization_id: currentOrg.id,
+        parent_id: data.parent_id || null,
+        type: locationType,  // Use the mapped type
+        code: data.code,
+        name: data.name,
+        description: data.description || '',
+        photo_url: data.photo_url || '',
+        capacity: data.capacity || 100
+      };
+      
+      console.log('Sending to API:', locationData);
+      
+      const result = await api.createLocation(locationData);
+      console.log('Location created:', result);
+      
       const updatedLocs = await api.getLocations(currentOrg.id);
       setLocations(updatedLocs);
+      setIsAddLocationModalOpen(false);
     } catch (err: any) {
+      console.error('Failed to add location:', err);
       alert(`Failed to add location: ${err.message}`);
     }
   };
@@ -383,9 +485,20 @@ export default function App() {
   );
 
   const checkedOutCount = allAssets.filter(a => a.status === 'checked_out').length;
-  const isZeroState = !currentUser || !currentOrg || organizations.length === 0;
+  const isSystemZeroState = isAppReady && organizations.length === 0 && users.length === 0;
 
-  if (isZeroState) {
+  if (!isAppReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-slate-700 border-t-cyan-400 mx-auto" />
+          <div className="text-sm text-slate-300">Loading ISAMS, checking application state...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
         <AuthModal
@@ -393,7 +506,7 @@ export default function App() {
           onSuccess={handleAuthSuccess}
           existingUsers={users}
           organizations={organizations}
-          isSystemZeroState={true}
+          isSystemZeroState={isSystemZeroState}
         />
       </div>
     );
@@ -472,6 +585,8 @@ export default function App() {
                 setIsAddLocationModalOpen(true);
               }}
               onOpenQrScanner={() => setIsQrScannerOpen(true)}
+              onRefresh={refreshLocations}
+              isLoading={locationsLoading} // Add this
             />
           ) : renderPermissionDeniedGuard('Manage Spatial Locations', 'can_manage_locations')
         )}
@@ -614,7 +729,7 @@ export default function App() {
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
         organizations={organizations}
-        currentOrgId={currentOrg.id}
+        currentOrgId={currentOrg?.id || ''}
         categories={categories}
         locations={locations}
         initialLocationId={registerLocationId}
@@ -661,6 +776,7 @@ export default function App() {
           await handleInitializeSystem(data);
           setIsSystemSetupOpen(false);
         }}
+        onClose={() => setIsSystemSetupOpen(false)}
       />
 
       {/* User Login & Registration Auth Modal */}
@@ -670,7 +786,7 @@ export default function App() {
         onSuccess={handleAuthSuccess}
         existingUsers={users}
         organizations={organizations}
-        isSystemZeroState={isZeroState}
+        isSystemZeroState={isSystemZeroState}
       />
 
       {/* Django REST Integration Hub Modal */}

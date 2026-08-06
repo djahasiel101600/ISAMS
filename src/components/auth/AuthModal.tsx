@@ -38,6 +38,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     isSystemZeroState || existingUsers.length === 0 ? 'register' : 'login'
   );
 
+  React.useEffect(() => {
+    if (isSystemZeroState) {
+      setMode('register');
+    } else if (existingUsers.length > 0) {
+      setMode('login');
+    }
+  }, [isSystemZeroState, existingUsers.length]);
+
   // Register Form State
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -133,7 +141,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
       <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8">
         {/* Top Header Banner */}
-        <div className="relative px-6 py-6 bg-gradient-to-r from-indigo-900/60 via-slate-900 to-blue-900/40 border-b border-slate-800">
+        <div className="relative px-6 py-6 bg-linear-to-r from-indigo-900/60 via-slate-900 to-blue-900/40 border-b border-slate-800">
           {onClose && !isZeroState && (
             <button
               onClick={onClose}

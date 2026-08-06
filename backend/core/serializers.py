@@ -1,5 +1,6 @@
-from rest_framework import serializers
+import uuid
 
+from rest_framework import serializers
 from .models import (
     Organization,
     User,
@@ -9,151 +10,247 @@ from .models import (
     AssetLocationHistory,
     AuditLog,
     RoomScan,
-    RoomScanAnchor,
-    DbIntegrationConfig,
+    RoomAnchor,
 )
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ["id", "name", "settings", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = ['id', 'name', 'code', 'address', 'contact_email', 'contact_phone', 'created_at', 'updated_at']
 
 
 class UserSerializer(serializers.ModelSerializer):
+    organization_id = serializers.PrimaryKeyRelatedField(source='organization', queryset=Organization.objects.all())
+
     class Meta:
         model = User
-        fields = ["id", "organization", "name", "email", "role", "avatar_url", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = ['id', 'organization_id', 'name', 'email', 'role', 'permissions', 'department', 'avatar_url', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        if 'permissions' not in validated_data or not validated_data['permissions']:
+            validated_data['permissions'] = self._default_permissions(validated_data.get('role', 'Viewer'))
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'permissions' not in validated_data or not validated_data['permissions']:
+            validated_data['permissions'] = self._default_permissions(validated_data.get('role', instance.role))
+        return super().update(instance, validated_data)
+
+    def _default_permissions(self, role):
+        if role == 'Administrator':
+            return {
+                'can_manage_organization': True,
+                'can_manage_locations': True,
+                'can_register_assets': True,
+                'can_edit_assets': True,
+                'can_move_assets': True,
+                'can_check_out_in': True,
+                'can_archive_delete': True,
+                'can_view_audit_logs': True,
+                'can_export_reports': True,
+                'can_manage_users': True,
+                'can_configure_db': True,
+                'can_ar_scan': True,
+            }
+        if role == 'Viewer':
+            return {
+                'can_manage_organization': False,
+                'can_manage_locations': False,
+                'can_register_assets': False,
+                'can_edit_assets': False,
+                'can_move_assets': False,
+                'can_check_out_in': False,
+                'can_archive_delete': False,
+                'can_view_audit_logs': True,
+                'can_export_reports': True,
+                'can_manage_users': False,
+                'can_configure_db': False,
+                'can_ar_scan': False,
+            }
+        return {
+            'can_manage_organization': False,
+            'can_manage_locations': True,
+            'can_register_assets': True,
+            'can_edit_assets': True,
+            'can_move_assets': True,
+            'can_check_out_in': True,
+            'can_archive_delete': False,
+            'can_view_audit_logs': False,
+            'can_export_reports': True,
+            'can_manage_users': False,
+            'can_configure_db': False,
+            'can_ar_scan': True,
+        }
 
 
 class AssetCategorySerializer(serializers.ModelSerializer):
+    organization_id = serializers.PrimaryKeyRelatedField(source='organization', queryset=Organization.objects.all())
+    parent_category_id = serializers.PrimaryKeyRelatedField(
+        source='parent_category', queryset=AssetCategory.objects.all(), allow_null=True, required=False
+    )
+
     class Meta:
         model = AssetCategory
-        fields = [
-            "id", "organization", "name", "code", "description",
-            "icon", "color", "created_at", "updated_at",
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = ['id', 'organization_id', 'name', 'code', 'icon_name', 'color', 'description', 'parent_category_id', 'created_at', 'updated_at']
+
+
+class LocationNodeBreadcrumbSerializer(serializers.ModelSerializer):
+    parent_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LocationNode
+        fields = ['id', 'name', 'type', 'code', 'parent_id']
+
+    def get_parent_id(self, obj):
+        return str(obj.parent.id) if obj.parent else None
 
 
 class LocationNodeSerializer(serializers.ModelSerializer):
+    organization = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False)
+    organization_id = serializers.SerializerMethodField()
+    parent = serializers.PrimaryKeyRelatedField(queryset=LocationNode.objects.all(), allow_null=True, required=False, write_only=True)
+    parent_id = serializers.SerializerMethodField()
+    qr_code = serializers.CharField(required=False, allow_blank=True)
+    breadcrumbs = serializers.SerializerMethodField()
+
     class Meta:
         model = LocationNode
         fields = [
-            "id", "organization", "parent", "type", "code", "name",
-            "description", "photo_url", "capacity", "created_at", "updated_at",
+            'id', 'organization', 'organization_id', 'parent', 'parent_id', 'type', 'code', 'name', 'description', 'photo_url', 'capacity',
+            'current_occupancy', 'qr_code', 'is_deleted', 'created_at', 'updated_at', 'breadcrumbs',
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
 
+    def get_organization_id(self, obj):
+        return str(obj.organization.id) if obj.organization else None
 
-class LocationBreadcrumbSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LocationNode
-        fields = ["id", "type", "code", "name"]
-
-
-class LocationDetailSerializer(LocationNodeSerializer):
-    breadcrumbs = serializers.SerializerMethodField()
-
-    class Meta(LocationNodeSerializer.Meta):
-        fields = LocationNodeSerializer.Meta.fields + ["breadcrumbs"]
+    def get_parent_id(self, obj):
+        return str(obj.parent.id) if obj.parent else None
 
     def get_breadcrumbs(self, obj):
-        return LocationBreadcrumbSerializer(obj.breadcrumbs(), many=True).data
+        path = []
+        parent = obj.parent
+        while parent is not None:
+            path.insert(0, parent)
+            parent = parent.parent
+        return LocationNodeBreadcrumbSerializer(path, many=True).data
+
+    def create(self, validated_data):
+        if not validated_data.get('qr_code'):
+            validated_data['qr_code'] = f'LOC-{uuid.uuid4().hex[:10].upper()}'
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'qr_code' in validated_data and not validated_data['qr_code']:
+            validated_data.pop('qr_code')
+        return super().update(instance, validated_data)
 
 
 class AssetSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source="category.name", read_only=True)
-    location_name = serializers.CharField(source="location.name", read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(source='organization', queryset=Organization.objects.all(), required=False)
+    organization = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.all(), write_only=True, required=False)
+    category_id = serializers.PrimaryKeyRelatedField(source='category', queryset=AssetCategory.objects.all(), allow_null=True, required=False)
+    category = serializers.PrimaryKeyRelatedField(queryset=AssetCategory.objects.all(), write_only=True, allow_null=True, required=False)
+    location_id = serializers.PrimaryKeyRelatedField(source='current_location', queryset=LocationNode.objects.all(), allow_null=True, required=False)
+    current_location = serializers.PrimaryKeyRelatedField(queryset=LocationNode.objects.all(), write_only=True, allow_null=True, required=False)
+    asset_number = serializers.CharField(required=False, allow_blank=True)
+    qr_code = serializers.CharField(required=False, allow_blank=True)
+    category_name = serializers.SerializerMethodField()
+    location_path_formatted = serializers.SerializerMethodField()
 
     class Meta:
         model = Asset
         fields = [
-            "id", "organization", "title", "category", "category_name",
-            "location", "location_name", "description", "keywords", "photos",
-            "qr_code", "status", "borrower_name", "due_date", "checkout_notes",
-            "checked_out_at", "created_by_user_id", "created_by_user_name",
-            "created_at", "updated_at",
-        ]
-        read_only_fields = [
-            "id", "qr_code", "status", "borrower_name", "due_date",
-            "checkout_notes", "checked_out_at", "created_at", "updated_at",
+            'id', 'organization_id', 'organization', 'category_id', 'category', 'location_id', 'current_location',
+            'category_name', 'location_path_formatted', 'asset_number', 'title', 'description', 'keywords', 'barcode', 'qr_code', 'status',
+            'checked_out_to', 'checked_out_by_user_id', 'checked_out_at', 'due_date', 'notes',
+            'photos', 'documents', 'created_by', 'updated_by', 'created_at', 'updated_at', 'is_deleted',
         ]
 
+    def get_category_name(self, obj):
+        return obj.category.name if obj.category else ''
 
-class AssetCreateSerializer(serializers.ModelSerializer):
-    user_id = serializers.CharField(required=False, allow_blank=True, write_only=True)
-    user_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
-
-    class Meta:
-        model = Asset
-        fields = [
-            "title", "organization", "category", "location", "description",
-            "keywords", "photos", "user_id", "user_name",
-        ]
-        extra_kwargs = {"organization": {"required": False}}
+    def get_location_path_formatted(self, obj):
+        return obj.current_location.get_path() if obj.current_location else ''
 
     def create(self, validated_data):
-        user_id = validated_data.pop("user_id", "")
-        user_name = validated_data.pop("user_name", "")
-        validated_data["created_by_user_id"] = user_id
-        validated_data["created_by_user_name"] = user_name
-        return Asset.objects.create(**validated_data)
+        if not validated_data.get('asset_number'):
+            validated_data['asset_number'] = f'AST-{uuid.uuid4().hex[:10].upper()}'
+        if not validated_data.get('qr_code'):
+            validated_data['qr_code'] = f'AST-{uuid.uuid4().hex[:10].upper()}'
+        return super().create(validated_data)
 
 
 class AssetLocationHistorySerializer(serializers.ModelSerializer):
-    asset_title = serializers.CharField(source="asset.title", read_only=True)
-    from_location_name = serializers.CharField(source="from_location.name", read_only=True, default=None)
-    to_location_name = serializers.CharField(source="to_location.name", read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(source='organization', queryset=Organization.objects.all())
+    asset_id = serializers.PrimaryKeyRelatedField(source='asset', queryset=Asset.objects.all())
+    from_location_id = serializers.SerializerMethodField()
+    to_location_id = serializers.SerializerMethodField()
 
     class Meta:
         model = AssetLocationHistory
         fields = [
-            "id", "asset", "asset_title", "from_location", "from_location_name",
-            "to_location", "to_location_name", "reason",
-            "moved_by_user_id", "moved_by_user_name", "moved_at",
+            'id', 'organization_id', 'asset_id', 'asset_number', 'asset_title', 'from_location_id',
+            'from_location_path', 'to_location_id', 'to_location_path', 'moved_by_user_id',
+            'moved_by_user_name', 'reason', 'created_at', 'updated_at',
         ]
-        read_only_fields = fields
+
+    def get_from_location_id(self, obj):
+        return str(obj.from_location.id) if obj.from_location else None
+
+    def get_to_location_id(self, obj):
+        return str(obj.to_location.id) if obj.to_location else None
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
+    organization_id = serializers.PrimaryKeyRelatedField(source='organization', queryset=Organization.objects.all())
+
     class Meta:
         model = AuditLog
         fields = [
-            "id", "organization", "action", "entity_type", "entity_id",
-            "user_id", "user_name", "details", "created_at",
+            'id', 'organization_id', 'user_id', 'user_name', 'user_role', 'action',
+            'entity_type', 'entity_id', 'details', 'ip_address', 'created_at',
         ]
-        read_only_fields = fields
 
 
-class RoomScanAnchorSerializer(serializers.ModelSerializer):
+class RoomAnchorSerializer(serializers.ModelSerializer):
+    location_id = serializers.CharField(allow_blank=True, required=False)
+    associated_asset_id = serializers.CharField(allow_blank=True, allow_null=True, required=False)
+    color = serializers.CharField(allow_blank=True, required=False)
+    created_by = serializers.CharField(allow_blank=True, required=False)
+    notes = serializers.CharField(allow_blank=True, required=False)
+
     class Meta:
-        model = RoomScanAnchor
-        fields = ["id", "room_scan", "asset", "label", "x", "y", "z", "metadata", "created_at"]
-        read_only_fields = ["id", "room_scan", "created_at"]
+        model = RoomAnchor
+        fields = [
+            'id', 'location_id', 'x', 'y', 'z_depth', 'title', 'area_type', 'documents',
+            'associated_asset_id', 'color', 'created_by', 'notes', 'created_at', 'updated_at',
+        ]
 
 
 class RoomScanSerializer(serializers.ModelSerializer):
-    anchors = RoomScanAnchorSerializer(many=True, read_only=True)
+    organization_id = serializers.PrimaryKeyRelatedField(source='organization', queryset=Organization.objects.all())
+    location_id = serializers.PrimaryKeyRelatedField(source='location', queryset=LocationNode.objects.all(), allow_null=True, required=False)
+    anchors = RoomAnchorSerializer(many=True, read_only=True)
 
     class Meta:
         model = RoomScan
         fields = [
-            "id", "organization", "room_name", "location_path", "location",
-            "background_image", "paired_device_name", "anchors",
-            "created_at", "updated_at",
+            'id', 'organization_id', 'room_name', 'location_path', 'location_id', 'background_image',
+            'paired_device_connected', 'paired_device_name', 'created_at', 'updated_at', 'anchors',
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
 
 
-class DbIntegrationConfigSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DbIntegrationConfig
-        fields = [
-            "engine", "host", "port", "database", "username", "password",
-            "extra", "is_connected", "last_tested_at", "last_test_message", "updated_at",
-        ]
-        read_only_fields = ["is_connected", "last_tested_at", "last_test_message", "updated_at"]
-        extra_kwargs = {"password": {"write_only": True}}
+class DashboardMetricsSerializer(serializers.Serializer):
+    total_assets = serializers.IntegerField()
+    available_assets = serializers.IntegerField()
+    checked_out_assets = serializers.IntegerField()
+    in_transit_assets = serializers.IntegerField()
+    missing_assets = serializers.IntegerField()
+    total_buildings = serializers.IntegerField()
+    total_rooms = serializers.IntegerField()
+    total_storage_units = serializers.IntegerField()
+    avg_occupancy_rate = serializers.FloatField()
+    recent_moves = AssetLocationHistorySerializer(many=True)
+    recent_activities = AuditLogSerializer(many=True)
+    top_categories = serializers.ListField(child=serializers.DictField())

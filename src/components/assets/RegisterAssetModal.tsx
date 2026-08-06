@@ -20,11 +20,10 @@ interface RegisterAssetModalProps {
     title: string;
     organization_id: string;
     category_id: string;
-    location_id: string;
+    location_id?: string;
     description: string;
     keywords: string;
     photos: string[];
-    // Optional new organization details supplied by user
     newOrganization?: {
       name: string;
       code: string;
@@ -37,7 +36,7 @@ interface RegisterAssetModalProps {
       description?: string;
       color?: string;
     };
-  }) => void;
+  }) => Promise<void>;
 }
 
 export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
@@ -67,7 +66,7 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
   const [newCategoryDesc, setNewCategoryDesc] = useState('');
 
   // Location & Details
-  const initialLoc = initialLocationId || locations[0]?.id || 'auto_create_default';
+  const initialLoc = initialLocationId || locations[0]?.id || '';
   const [locationIdState, setLocationId] = useState(initialLoc);
   const locationId = locationIdState || initialLoc;
   const [description, setDescription] = useState('');
@@ -96,45 +95,51 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !locationId) return;
+    if (!title.trim()) return;
+    if (locations.length > 0 && !locationId) return;
 
     if (isSupplyingNewOrg && !newOrgName.trim()) return;
     if (isSupplyingNewCategory && !newCategoryName.trim()) return;
 
-    onSubmit({
-      title: title.trim(),
-      organization_id: isSupplyingNewOrg ? 'pending_new_org' : selectedOrgId,
-      category_id: isSupplyingNewCategory ? 'pending_new_cat' : selectedCategoryId,
-      location_id: locationId,
-      description: description.trim(),
-      keywords: keywords.trim(),
-      photos: photoUrl.trim() ? [photoUrl.trim()] : [],
-      newOrganization: isSupplyingNewOrg ? {
-        name: newOrgName.trim(),
-        code: newOrgCode.trim() || newOrgName.trim().slice(0, 4).toUpperCase(),
-        contact_email: newOrgEmail.trim()
-      } : undefined,
-      newCategory: isSupplyingNewCategory ? {
-        name: newCategoryName.trim(),
-        code: newCategoryCode.trim() || newCategoryName.trim().slice(0, 4).toUpperCase(),
-        description: newCategoryDesc.trim()
-      } : undefined
-    });
+    try {
+      await onSubmit({
+        title: title.trim(),
+        organization_id: isSupplyingNewOrg ? 'pending_new_org' : selectedOrgId,
+        category_id: isSupplyingNewCategory ? 'pending_new_cat' : selectedCategoryId,
+        location_id: locations.length > 0 ? locationId : undefined,
+        description: description.trim(),
+        keywords: keywords.trim(),
+        photos: photoUrl.trim() ? [photoUrl.trim()] : [],
+        newOrganization: isSupplyingNewOrg ? {
+          name: newOrgName.trim(),
+          code: newOrgCode.trim() || newOrgName.trim().slice(0, 4).toUpperCase(),
+          contact_email: newOrgEmail.trim()
+        } : undefined,
+        newCategory: isSupplyingNewCategory ? {
+          name: newCategoryName.trim(),
+          code: newCategoryCode.trim() || newCategoryName.trim().slice(0, 4).toUpperCase(),
+          description: newCategoryDesc.trim()
+        } : undefined
+      });
 
-    // Reset Form
-    setTitle('');
-    setNewOrgName('');
-    setNewOrgCode('');
-    setNewOrgEmail('');
-    setNewCategoryName('');
-    setNewCategoryCode('');
-    setNewCategoryDesc('');
-    setDescription('');
-    setKeywords('');
-    setPhotoUrl('');
-    onClose();
+      // Reset Form
+      setTitle('');
+      setNewOrgName('');
+      setNewOrgCode('');
+      setNewOrgEmail('');
+      setNewCategoryName('');
+      setNewCategoryCode('');
+      setNewCategoryDesc('');
+      setDescription('');
+      setKeywords('');
+      setPhotoUrl('');
+      onClose();
+    } catch (err) {
+      console.error('Register asset submission failed:', err);
+      alert(`Failed to register asset: ${err instanceof Error ? err.message : err}`);
+    }
   };
 
   const samplePhotoPresets = [
@@ -308,7 +313,7 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
 
           {/* Spatial Storage Location */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+            <label className="text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-emerald-400" />
               Spatial Storage Location <span className="text-rose-400">*</span>
             </label>

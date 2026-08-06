@@ -53,6 +53,7 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
   const [cameraMode, setCameraMode] = useState<'webcam' | 'sample' | 'upload'>('sample');
   const [webcamActive, setWebcamActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string>('');
+  const [backgroundImageError, setBackgroundImageError] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -78,12 +79,16 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
 
   // Mobile Pairing Modal State
   const [isPairModalOpen, setIsPairModalOpen] = useState<boolean>(false);
-  const [pairData, setPairData] = useState<{ pair_code: string; pair_url: string } | null>(null);
+  const [pairData, setPairData] = useState<{ pair_code: string; pair_url: string; connected?: boolean; device_name?: string } | null>(null);
   const [pairQrDataUrl, setPairQrDataUrl] = useState<string>('');
+  const [pairConnected, setPairConnected] = useState<boolean>(false);
+  const [pairedDeviceName, setPairedDeviceName] = useState<string>('');
+  const pairPollingRef = useRef<number | null>(null);
 
   // AI Frame Analyzer State
   const [aiAnalyzing, setAiAnalyzing] = useState<boolean>(false);
   const [aiResult, setAiResult] = useState<any>(null);
+  const [isCapturing, setIsCapturing] = useState<boolean>(false);
 
   // Search & Filter
   const [searchFilter, setSearchFilter] = useState<string>('');
@@ -91,12 +96,13 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
   // Load initial scans from server
   useEffect(() => {
     loadScans();
-  }, []);
+  }, [currentUser]);
 
   const loadScans = async () => {
     try {
       setLoading(true);
-      const data = await api.getRoomScans('org-1');
+      const orgId = currentUser?.organization_id || 'org-1';
+      const data = await api.getRoomScans(orgId);
       setScans(data);
       if (data.length > 0 && !activeScanId) {
         setActiveScanId(data[0].id);
@@ -109,6 +115,39 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
   };
 
   const currentScan = scans.find(s => s.id === activeScanId) || scans[0];
+  const DEFAULT_ROOM_SCAN_IMAGE = 'https://images.unsplash.com/photo-1590381105924-c72589b9ef3f?w=1200';
+  const rawBackgroundImage = currentScan?.background_image?.trim();
+  const resolvedBackgroundImage = !backgroundImageError && rawBackgroundImage
+    ? rawBackgroundImage.startsWith('data:') || rawBackgroundImage.startsWith('http')
+      ? rawBackgroundImage
+      : `data:image/jpeg;base64,${rawBackgroundImage}`
+    : DEFAULT_ROOM_SCAN_IMAGE;
+
+  useEffect(() => {
+    setBackgroundImageError(false);
+  }, [currentScan?.id, currentScan?.background_image]);
+
+  const handleCreateDefaultScan = async () => {
+    if (!currentUser?.organization_id) {
+      console.error('Unable to create room scan: missing organization id');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const scan = await api.createRoomScan({
+        organization: currentUser.organization_id,
+        room_name: 'New Room Scan',
+        location_path: 'Unknown Location',
+      });
+      await loadScans();
+      setActiveScanId(scan.id);
+    } catch (err) {
+      console.error('Failed to create default room scan:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Camera Management
   const startWebcam = async () => {
@@ -164,17 +203,82 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
   // Mobile Pairing Handler
   const handleOpenMobilePair = async () => {
     setIsPairModalOpen(true);
+    setPairConnected(false);
+    setPairedDeviceName('');
+    setPairQrDataUrl('');
+    setPairData(null);
+
     try {
       const data = await api.pairMobileSession();
-      setPairData(data);
+      setPairData({ ...data, connected: false, device_name: '' });
       const qrDataUrl = await api.renderQrCode(data.pair_url);
       setPairQrDataUrl(qrDataUrl);
+
+      if (pairPollingRef.current) {
+        window.clearInterval(pairPollingRef.current);
+      }
+
+      pairPollingRef.current = window.setInterval(async () => {
+        try {
+          const status = await api.getPairSessionStatus(data.pair_code);
+          if (status.connected) {
+            setPairConnected(true);
+            setPairedDeviceName(status.device_name || 'Mobile Scanner');
+            setPairData(prev => prev ? { ...prev, connected: true, device_name: status.device_name } : prev);
+            if (pairPollingRef.current) {
+              window.clearInterval(pairPollingRef.current);
+              pairPollingRef.current = null;
+            }
+          }
+        } catch (err) {
+          console.warn('Pair status poll failed:', err);
+        }
+      }, 2000);
     } catch (err) {
       console.error('Failed to initiate phone pairing:', err);
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (pairPollingRef.current) {
+        window.clearInterval(pairPollingRef.current);
+        pairPollingRef.current = null;
+      }
+    };
+  }, []);
+
   // Submit Annotation
+  const captureRoomPhoto = async () => {
+    if (!currentScan || !videoRef.current) return;
+    const video = videoRef.current;
+    const track = (video.srcObject as MediaStream | null)?.getVideoTracks()?.[0];
+    if (!track) {
+      alert('No active video stream available to capture.');
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Unable to create canvas context');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      await api.updateRoomScan(currentScan.id, { background_image: dataUrl });
+      await loadScans();
+      setCameraMode('sample');
+      setBackgroundImageError(false);
+    } catch (err: any) {
+      console.error('Capture failed:', err);
+      alert(`Failed to capture room photo: ${err.message || err}`);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   const handleSaveAnnotation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentScan || !areaTitle.trim()) return;
@@ -262,11 +366,28 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
     }
   };
 
-  if (loading || !currentScan) {
+  if (loading) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">
         <RefreshCw className="w-8 h-8 animate-spin mx-auto text-blue-400 mb-3" />
         <p className="text-xs">Initializing Augmented Reality Spatial Workspace...</p>
+      </div>
+    );
+  }
+
+  if (!currentScan) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-300 space-y-4">
+        <div className="text-xl font-semibold text-white">No AR Room Scan Found</div>
+        <p className="text-sm text-slate-400">
+          Create your first room scan to begin mapping a spatial workspace and dropping AR annotations.
+        </p>
+        <button
+          onClick={handleCreateDefaultScan}
+          className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition"
+        >
+          Create Room Scan
+        </button>
       </div>
     );
   }
@@ -303,6 +424,14 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
             className="inline-flex items-center gap-2 px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold rounded-xl transition-all cursor-pointer"
           >
             <Smartphone className="w-4 h-4" /> Connect Phone Camera
+          </button>
+
+          <button
+            onClick={captureRoomPhoto}
+            disabled={cameraMode !== 'webcam' || !webcamActive || isCapturing}
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-200 border border-emerald-500/30 text-xs font-semibold rounded-xl transition-all shadow-md cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" /> {isCapturing ? 'Capturing...' : 'Capture Room Photo'}
           </button>
 
           <button
@@ -468,13 +597,26 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                   muted
                   className="absolute inset-0 w-full h-full object-cover"
                 />
-              ) : (
+              ) : resolvedBackgroundImage ? (
                 /* Background 2: High-Res Room Photo */
                 <img
-                  src={currentScan.background_image}
+                  src={resolvedBackgroundImage}
                   alt={currentScan.room_name}
+                  onError={() => setBackgroundImageError(true)}
                   className="absolute inset-0 w-full h-full object-cover opacity-90 transition-opacity"
                 />
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/95 text-slate-400 p-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
+                    <Eye className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-white">Room photo unavailable</p>
+                    <p className="text-xs text-slate-400 max-w-xs">
+                      No valid room image was found for this scan. Switch to webcam mode, reconnect your camera, or create a new room scan.
+                    </p>
+                  </div>
+                </div>
               )}
 
               {/* AR HUD Grid & Horizon Lines */}
@@ -804,7 +946,13 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                 <h3 className="text-base font-bold text-white">Connect Mobile Smartphone Camera</h3>
               </div>
               <button
-                onClick={() => setIsPairModalOpen(false)}
+                onClick={() => {
+                  setIsPairModalOpen(false);
+                  if (pairPollingRef.current) {
+                    window.clearInterval(pairPollingRef.current);
+                    pairPollingRef.current = null;
+                  }
+                }}
                 className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -839,9 +987,9 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                 </div>
               )}
 
-              <div className="text-[11px] text-slate-400 flex items-center justify-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Waiting for mobile connection...</span>
+              <div className={`text-[11px] flex items-center justify-center gap-2 ${pairConnected ? 'text-emerald-300' : 'text-slate-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${pairConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500 animate-pulse'}`} />
+                <span>{pairConnected ? `Connected to ${pairedDeviceName || 'Mobile Device'}` : 'Waiting for mobile connection...'}</span>
               </div>
 
             </div>

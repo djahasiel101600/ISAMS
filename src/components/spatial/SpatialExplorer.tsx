@@ -4,7 +4,7 @@
  * Visual hierarchy browser (Building -> Floor -> Room -> Storage Unit -> Compartment -> Container)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building, 
   Layers, 
@@ -23,7 +23,8 @@ import {
   AlertCircle,
   Eye,
   PlusCircle,
-  Image as ImageIcon
+  Image as ImageIcon,
+  RefreshCw
 } from 'lucide-react';
 import { LocationNode, LocationType, Asset } from '../../types/isams';
 
@@ -34,6 +35,8 @@ interface SpatialExplorerProps {
   onOpenRegisterAssetAtLocation: (locationId: string) => void;
   onOpenAddLocation: (parentId: string | null) => void;
   onOpenQrScanner: () => void;
+  onRefresh?: () => void; // Add this prop
+  isLoading?: boolean; // Add loading state
 }
 
 export const SpatialExplorer: React.FC<SpatialExplorerProps> = ({
@@ -42,10 +45,33 @@ export const SpatialExplorer: React.FC<SpatialExplorerProps> = ({
   onSelectAsset,
   onOpenRegisterAssetAtLocation,
   onOpenAddLocation,
-  onOpenQrScanner
+  onOpenQrScanner,
+  onRefresh,
+  isLoading = false
 }) => {
   // Active selected location node ID (Null means top-level Buildings list)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Load data when component mounts
+  useEffect(() => {
+    console.log('SpatialExplorer mounted, loading locations...');
+    if (onRefresh) {
+      onRefresh();
+    }
+    // Reset selection when component mounts
+    setSelectedLocationId(null);
+  }, []); // Empty dependency array means this runs once on mount
+
+  // Handle manual refresh
+  const handleRefresh = async () => {
+    console.log('Manual refresh triggered');
+    setIsRefreshing(true);
+    if (onRefresh) {
+      await onRefresh();
+    }
+    setIsRefreshing(false);
+  };
 
   // Get active location node object
   const currentLocation = useMemo(() => {
@@ -116,6 +142,48 @@ export const SpatialExplorer: React.FC<SpatialExplorerProps> = ({
     }
   };
 
+  // Show loading state
+  if (isLoading || isRefreshing) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
+        <p className="text-slate-400 text-sm">Loading locations...</p>
+      </div>
+    );
+  }
+
+  // Show empty state when no locations
+  if (!locations || locations.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+          <Building className="w-12 h-12 text-indigo-400/60 mx-auto mb-4" />
+          <h3 className="text-lg font-bold text-white mb-2">No Locations Found</h3>
+          <p className="text-sm text-slate-400 max-w-md mx-auto mb-6">
+            Start by creating your first location. You can add buildings, floors, rooms, 
+            or any other spatial container to organize your assets.
+          </p>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={() => onOpenAddLocation(null)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-all"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Create First Location
+            </button>
+            <button
+              onClick={handleRefresh}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-all"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       
@@ -152,6 +220,13 @@ export const SpatialExplorer: React.FC<SpatialExplorerProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleRefresh}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors"
+              title="Refresh locations"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
             <button
               onClick={() => onOpenAddLocation(selectedLocationId)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors"
