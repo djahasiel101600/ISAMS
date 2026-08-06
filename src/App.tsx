@@ -21,6 +21,7 @@ import { DatabaseIntegrationView } from './components/db/DatabaseIntegrationView
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AddLocationModal } from './components/spatial/AddLocationModal';
 import { PermissionMatrixModal } from './components/common/PermissionMatrixModal';
+import { CheckOutModal } from './components/borrowing/CheckOutModal';
 import { ShieldAlert, Key } from 'lucide-react';
 
 import { api } from './services/api';
@@ -70,6 +71,7 @@ export default function App() {
   // Modals & Triggers
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [relocateAsset, setRelocateAsset] = useState<Asset | null>(null);
+  const [checkOutAsset, setCheckOutAsset] = useState<Asset | null>(null);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registerLocationId, setRegisterLocationId] = useState<string | null>(null);
   const [isAddLocationModalOpen, setIsAddLocationModalOpen] = useState(false);
@@ -247,6 +249,22 @@ export default function App() {
   };
 
   // 6. Check-Out / Check-In Handlers
+  const handleConfirmCheckOut = async (assetId: string, borrowerName: string, dueDate: string, notes: string) => {
+    if (!currentUser) return;
+    await api.checkOutAsset(
+      assetId,
+      borrowerName,
+      dueDate,
+      notes,
+      currentUser.id,
+      currentUser.name
+    );
+    await refreshAssets();
+    if (selectedAsset && selectedAsset.id === assetId) {
+      setSelectedAsset(await api.getAssetById(assetId));
+    }
+  };
+
   const handleCheckInAsset = async (asset: Asset) => {
     if (!currentUser) return;
     try {
@@ -421,7 +439,7 @@ export default function App() {
             onSelectAsset={setSelectedAsset}
             onOpenRelocateAsset={setRelocateAsset}
             onOpenCheckOutAsset={(asset) => {
-              setSelectedAsset(asset);
+              setCheckOutAsset(asset);
             }}
             onCheckInAsset={handleCheckInAsset}
             onOpenRegisterAsset={() => {
@@ -440,7 +458,7 @@ export default function App() {
             <CheckInOutView
               assets={allAssets}
               onCheckInAsset={handleCheckInAsset}
-              onOpenCheckOutAsset={(asset) => setSelectedAsset(asset)}
+              onOpenCheckOutAsset={(asset) => setCheckOutAsset(asset)}
               onSelectAsset={setSelectedAsset}
             />
           ) : renderPermissionDeniedGuard('Check-In / Check-Out Custody', 'can_check_out_in')
@@ -500,16 +518,17 @@ export default function App() {
         asset={selectedAsset}
         onClose={() => setSelectedAsset(null)}
         onOpenRelocate={(asset) => setRelocateAsset(asset)}
-        onOpenCheckOut={(asset) => {
-          const borrower = prompt('Enter borrower name or department:');
-          const dueDate = prompt('Enter expected due date (YYYY-MM-DD):', '2026-08-20');
-          if (borrower && dueDate && currentUser) {
-            api.checkOutAsset(asset.id, borrower, dueDate, 'Borrowing via UI', currentUser.id, currentUser.name)
-              .then(() => refreshAssets())
-              .catch(err => alert(err.message));
-          }
-        }}
+        onOpenCheckOut={(asset) => setCheckOutAsset(asset)}
         onCheckIn={handleCheckInAsset}
+      />
+
+      {/* Check-Out Custody Modal */}
+      <CheckOutModal
+        asset={checkOutAsset}
+        isOpen={!!checkOutAsset}
+        onClose={() => setCheckOutAsset(null)}
+        users={users}
+        onConfirmCheckOut={handleConfirmCheckOut}
       />
 
       {/* Register Asset Modal (Supports custom supplied Category and Organization) */}

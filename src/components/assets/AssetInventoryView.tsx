@@ -99,9 +99,25 @@ export const AssetInventoryView: React.FC<AssetInventoryViewProps> = ({
 
           {/* Filter Toggles & Actions */}
           <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+            {(selectedCategoryId !== 'all' || selectedStatus !== 'all' || selectedLocationId !== 'all' || searchQuery !== '') && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSearchChange('');
+                  onCategoryChange('all');
+                  onStatusChange('all');
+                  onLocationChange('all');
+                  onPageChange(1);
+                }}
+                className="px-2.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium rounded-lg transition-colors cursor-pointer"
+              >
+                Reset Filters
+              </button>
+            )}
+
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${showFilters ? 'bg-blue-600/20 text-blue-300 border-blue-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${showFilters ? 'bg-blue-600/20 text-blue-300 border-blue-500/40' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               <span>Filters</span>
