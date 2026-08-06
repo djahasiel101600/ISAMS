@@ -237,7 +237,7 @@ class RoomScanSerializer(serializers.ModelSerializer):
         model = RoomScan
         fields = [
             'id', 'organization_id', 'room_name', 'location_path', 'location_id', 'background_image',
-            'paired_device_connected', 'paired_device_name', 'created_at', 'updated_at', 'anchors',
+            'panorama_images', 'paired_device_connected', 'paired_device_name', 'created_at', 'updated_at', 'anchors',
         ]
 
 

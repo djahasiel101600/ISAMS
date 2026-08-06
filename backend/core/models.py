@@ -221,6 +221,7 @@ class RoomScan(TimestampedModel):
     location_path = models.CharField(max_length=1024, blank=True)
     location = models.ForeignKey(LocationNode, null=True, blank=True, on_delete=models.SET_NULL, related_name='room_scans')
     background_image = models.TextField(blank=True)
+    panorama_images = models.JSONField(default=list, blank=True)
     paired_device_connected = models.BooleanField(default=False)
     paired_device_name = models.CharField(max_length=255, blank=True)
 

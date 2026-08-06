@@ -357,6 +357,8 @@ class RoomScanViewSet(viewsets.ModelViewSet):
         incoming = sanitize_request_data(request.data)
         if not incoming.get('background_image'):
             incoming['background_image'] = 'https://images.unsplash.com/photo-1590381105924-c72589b9ef3f?w=1200'
+        if incoming.get('panorama_images') is None:
+            incoming['panorama_images'] = []
         serializer = self.get_serializer(data=incoming)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
