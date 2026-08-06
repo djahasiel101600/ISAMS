@@ -46,7 +46,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     avg_occupancy_rate: 0,
     top_categories: [],
     recent_moves: [],
-    recent_activities: []
+    recent_activities: [],
+    missing_assets: 0
   };
 
   return (

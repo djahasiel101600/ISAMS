@@ -369,12 +369,14 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardView
             metrics={metrics}
-            allAssets={allAssets}
-            onSelectAsset={setSelectedAsset}
             onOpenRegisterAsset={() => {
               setRegisterLocationId(null);
               setIsRegisterModalOpen(true);
             }}
+            onOpenRelocate={() => {
+              if (allAssets.length > 0) setRelocateAsset(allAssets[0]);
+            }}
+            onOpenQrScanner={() => setIsQrScannerOpen(true)}
             onNavigateTab={setActiveTab}
           />
         )}
@@ -385,7 +387,7 @@ export default function App() {
               locations={locations}
               assets={allAssets}
               onSelectAsset={setSelectedAsset}
-              onOpenRegisterAtLocation={(locId) => {
+              onOpenRegisterAssetAtLocation={(locId) => {
                 setRegisterLocationId(locId);
                 setIsRegisterModalOpen(true);
               }}
