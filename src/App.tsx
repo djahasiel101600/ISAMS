@@ -24,6 +24,7 @@ import { PermissionMatrixModal } from './components/common/PermissionMatrixModal
 import { CheckOutModal } from './components/borrowing/CheckOutModal';
 import { InitialSystemSetupModal } from './components/common/InitialSystemSetupModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { DjangoIntegrationModal } from './components/django/DjangoIntegrationModal';
 import { ShieldAlert, Key, Sparkles } from 'lucide-react';
 
 import { api } from './services/api';
@@ -82,6 +83,7 @@ export default function App() {
   const [isPermissionMatrixOpen, setIsPermissionMatrixOpen] = useState(false);
   const [isSystemSetupOpen, setIsSystemSetupOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isDjangoModalOpen, setIsDjangoModalOpen] = useState(false);
 
   // System Setup / Onboarding Handler
   const handleInitializeSystem = async (data: {
@@ -419,6 +421,7 @@ export default function App() {
           if (allAssets.length > 0) setRelocateAsset(allAssets[0]);
         }}
         onOpenSystemSetup={() => setIsSystemSetupOpen(true)}
+        onOpenDjangoModal={() => setIsDjangoModalOpen(true)}
         onOpenAuth={(mode) => {
           setIsAuthModalOpen(true);
         }}
@@ -666,6 +669,13 @@ export default function App() {
         existingUsers={users}
         organizations={organizations}
         isSystemZeroState={isZeroState}
+      />
+
+      {/* Django REST Integration Hub Modal */}
+      <DjangoIntegrationModal
+        isOpen={isDjangoModalOpen}
+        onClose={() => setIsDjangoModalOpen(false)}
+        onConfigSaved={() => loadInitialData()}
       />
 
       {/* Footer */}

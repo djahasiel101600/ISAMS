@@ -17,7 +17,8 @@ import {
   LogIn,
   RotateCcw,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  Server
 } from 'lucide-react';
 import { Organization, User } from '../../types/isams';
 
@@ -31,6 +32,7 @@ interface HeaderProps {
   onOpenRegisterAsset: () => void;
   onOpenRelocate: () => void;
   onOpenSystemSetup?: () => void;
+  onOpenDjangoModal?: () => void;
   onOpenAuth: (mode?: 'login' | 'register') => void;
   onResetSystem?: () => void;
   globalSearchQuery: string;
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenRegisterAsset,
   onOpenRelocate,
   onOpenSystemSetup,
+  onOpenDjangoModal,
   onOpenAuth,
   onResetSystem,
   globalSearchQuery,
@@ -142,6 +145,17 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
+            {onOpenDjangoModal && (
+              <button
+                onClick={onOpenDjangoModal}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg transition-colors cursor-pointer"
+                title="Configure Django REST Backend & Download Models/Views"
+              >
+                <Server className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden xl:inline">Django Backend</span>
+              </button>
+            )}
+
             {onOpenSystemSetup && (
               <button
                 onClick={onOpenSystemSetup}
@@ -201,6 +215,15 @@ export const Header: React.FC<HeaderProps> = ({
                       >
                         <Key className="w-4 h-4 text-indigo-400" /> Permission Matrix
                       </button>
+
+                      {onOpenDjangoModal && (
+                        <button
+                          onClick={() => { setShowUserMenu(false); onOpenDjangoModal(); }}
+                          className="w-full text-left px-3.5 py-2 text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <Server className="w-4 h-4 text-emerald-400" /> Django Integration Hub
+                        </button>
+                      )}
 
                       <button
                         onClick={() => { setShowUserMenu(false); onOpenAuth('register'); }}
