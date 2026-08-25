@@ -88,6 +88,12 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
   // AI Frame Analyzer State
   const [aiAnalyzing, setAiAnalyzing] = useState<boolean>(false);
   const [aiResult, setAiResult] = useState<any>(null);
+  const [guidedCaptureActive, setGuidedCaptureActive] = useState<boolean>(false);
+  const [guidedCaptureStep, setGuidedCaptureStep] = useState<number>(0);
+  const [guidedCaptureImages, setGuidedCaptureImages] = useState<string[]>([]);
+  const [is360Mode, setIs360Mode] = useState<boolean>(false);
+  const [current360Index, setCurrent360Index] = useState<number>(0);
+  const guidedCaptureDirections = ['Front', 'Left', 'Back', 'Right'];
   const [isCapturing, setIsCapturing] = useState<boolean>(false);
 
   // Search & Filter
@@ -117,11 +123,17 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
   const currentScan = scans.find(s => s.id === activeScanId) || scans[0];
   const DEFAULT_ROOM_SCAN_IMAGE = 'https://images.unsplash.com/photo-1590381105924-c72589b9ef3f?w=1200';
   const rawBackgroundImage = currentScan?.background_image?.trim();
-  const resolvedBackgroundImage = !backgroundImageError && rawBackgroundImage
+  const resolvedBackgroundImage = rawBackgroundImage && !backgroundImageError
     ? rawBackgroundImage.startsWith('data:') || rawBackgroundImage.startsWith('http')
       ? rawBackgroundImage
       : `data:image/jpeg;base64,${rawBackgroundImage}`
     : DEFAULT_ROOM_SCAN_IMAGE;
+  const currentPanoramaImages = currentScan?.panorama_images && currentScan.panorama_images.length > 0
+    ? currentScan.panorama_images
+    : guidedCaptureImages;
+  const displayBackgroundImage = is360Mode && currentPanoramaImages.length > 0
+    ? currentPanoramaImages[current360Index % currentPanoramaImages.length]
+    : resolvedBackgroundImage;
 
   useEffect(() => {
     setBackgroundImageError(false);
@@ -279,6 +291,60 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
     }
   };
 
+  const startGuidedCapture = () => {
+    setGuidedCaptureActive(true);
+    setGuidedCaptureStep(0);
+    setGuidedCaptureImages([]);
+    setIs360Mode(false);
+    setCurrent360Index(0);
+    setCameraMode('webcam');
+  };
+
+  const cancelGuidedCapture = () => {
+    setGuidedCaptureActive(false);
+    setGuidedCaptureImages([]);
+    setGuidedCaptureStep(0);
+    setIs360Mode(false);
+    setCurrent360Index(0);
+  };
+
+  const captureGuidedPhoto = async () => {
+    if (!currentScan || !videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      alert('Unable to capture image.');
+      return;
+    }
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const nextImages = [...guidedCaptureImages, dataUrl];
+    setGuidedCaptureImages(nextImages);
+
+    if (guidedCaptureStep >= guidedCaptureDirections.length - 1) {
+      setGuidedCaptureActive(false);
+      setIs360Mode(true);
+      setCurrent360Index(0);
+      setCameraMode('sample');
+      try {
+        await api.updateRoomScan(currentScan.id, {
+          background_image: dataUrl,
+          panorama_images: nextImages
+        });
+        await loadScans();
+      } catch (err: any) {
+        console.error('Failed to save guided 360 photos:', err);
+        alert(`Unable to save 360 capture: ${err.message || err}`);
+      }
+    } else {
+      setGuidedCaptureStep(guidedCaptureStep + 1);
+    }
+  };
+
   const handleSaveAnnotation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentScan || !areaTitle.trim()) return;
@@ -427,6 +493,13 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
           </button>
 
           <button
+            onClick={startGuidedCapture}
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-200 border border-fuchsia-500/30 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+          >
+            <MapPin className="w-4 h-4" /> Guided 360 Capture
+          </button>
+
+          <button
             onClick={captureRoomPhoto}
             disabled={cameraMode !== 'webcam' || !webcamActive || isCapturing}
             className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-200 border border-emerald-500/30 text-xs font-semibold rounded-xl transition-all shadow-md cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
@@ -437,7 +510,7 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
           <button
             onClick={handleAiScanFrame}
             disabled={aiAnalyzing}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-linear-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50"
           >
             <Sparkles className="w-4 h-4" /> {aiAnalyzing ? 'AI Scanning...' : 'AI Auto-Detect Documents'}
           </button>
@@ -572,6 +645,55 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                 <span className="text-emerald-400">{filteredAnchors.length} Spatial Pins</span>
               </div>
             </div>
+            {is360Mode && currentPanoramaImages.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 bg-slate-900 border-t border-slate-800 rounded-b-2xl text-xs text-slate-300">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-white">360 capture completed</span>
+                  <span>{current360Index + 1}/{currentPanoramaImages.length}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrent360Index((prev) => (prev - 1 + currentPanoramaImages.length) % currentPanoramaImages.length)}
+                    className="rounded-xl bg-slate-800 px-3 py-2 text-[11px] font-semibold text-slate-200 border border-slate-700 hover:bg-slate-700"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => setCurrent360Index((prev) => (prev + 1) % currentPanoramaImages.length)}
+                    className="rounded-xl bg-slate-800 px-3 py-2 text-[11px] font-semibold text-slate-200 border border-slate-700 hover:bg-slate-700"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => {
+                      setGuidedCaptureActive(false);
+                      setIs360Mode(false);
+                      setCameraMode('webcam');
+                    }}
+                    className="rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-500"
+                  >
+                    Retake
+                  </button>
+                </div>
+              </div>
+            )}
+            {(guidedCaptureActive || is360Mode) && (
+              <div className="flex flex-wrap items-center gap-3 px-1 mt-3">
+                {guidedCaptureActive ? (
+                  <div className="flex-1 rounded-2xl bg-slate-800/90 border border-slate-700 p-3 text-sm text-slate-200">
+                    <div className="font-semibold text-white">Guided 360 Capture</div>
+                    <p className="text-xs text-slate-400 mt-1">Point the camera to the <span className="font-semibold text-slate-100">{guidedCaptureDirections[guidedCaptureStep]}</span> direction, then tap Capture.</p>
+                    <p className="text-xs text-slate-500 mt-1">Step {guidedCaptureStep + 1} of {guidedCaptureDirections.length}</p>
+                  </div>
+                ) : (
+                  <div className="flex-1 rounded-2xl bg-slate-800/90 border border-slate-700 p-3 text-sm text-slate-200">
+                    <div className="font-semibold text-white">360 Room Preview</div>
+                    <p className="text-xs text-slate-400 mt-1">Capture complete! Review the current room angle, swipe between directions, then tap the room to annotate.</p>
+                    <p className="text-xs text-slate-500 mt-1">Use the viewer controls below to browse all captured angles.</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Live AR Spatial Reticle Canvas Container */}
             <div
@@ -586,7 +708,7 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                 });
               }}
               onMouseLeave={() => setReticlePos(null)}
-              className="relative w-full h-[520px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800 select-none group cursor-crosshair shadow-inner"
+              className="relative w-full h-130 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 select-none group cursor-crosshair shadow-inner"
             >
               
               {/* Background 1: Live Video Feed */}
@@ -597,10 +719,10 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                   muted
                   className="absolute inset-0 w-full h-full object-cover"
                 />
-              ) : resolvedBackgroundImage ? (
+              ) : displayBackgroundImage ? (
                 /* Background 2: High-Res Room Photo */
                 <img
-                  src={resolvedBackgroundImage}
+                  src={displayBackgroundImage}
                   alt={currentScan.room_name}
                   onError={() => setBackgroundImageError(true)}
                   className="absolute inset-0 w-full h-full object-cover opacity-90 transition-opacity"
@@ -620,8 +742,8 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
               )}
 
               {/* AR HUD Grid & Horizon Lines */}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/40 pointer-events-none" />
-              <div className="absolute inset-0 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:24px_24px] opacity-15 pointer-events-none" />
+              <div className="absolute inset-0 bg-linear-to-t from-slate-950/80 via-transparent to-slate-950/40 pointer-events-none" />
+              <div className="absolute inset-0 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] bg-size-[24px_24px] opacity-15 pointer-events-none" />
 
               {/* Center Crosshair Target */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none border border-emerald-500/30 w-16 h-16 rounded-full flex items-center justify-center">
@@ -640,6 +762,48 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                   <span className="absolute top-8 left-1/2 -translate-x-1/2 bg-slate-950/90 text-blue-300 font-mono text-[9px] px-1.5 py-0.5 rounded border border-blue-500/40 whitespace-nowrap shadow-lg">
                     [{reticlePos.x}%, {reticlePos.y}%] Tap to Annotate
                   </span>
+                </div>
+              )}
+
+              {cameraMode === 'webcam' && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute inset-x-0 bottom-0 z-40 px-4 py-3 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="text-[10px] text-slate-300">
+                    {guidedCaptureActive
+                      ? `Guided capture: ${guidedCaptureDirections[guidedCaptureStep]}`
+                      : 'Live camera mode. Tap capture to save this room view.'}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {guidedCaptureActive ? (
+                      <>
+                        <button
+                          onClick={captureGuidedPhoto}
+                          disabled={isCapturing}
+                          className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-fuchsia-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Upload className="w-4 h-4" />
+                          {isCapturing ? 'Capturing...' : 'Capture step'}
+                        </button>
+                        <button
+                          onClick={cancelGuidedCapture}
+                          className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 border border-slate-700 transition hover:bg-slate-700"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={captureRoomPhoto}
+                        disabled={!webcamActive || isCapturing}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Upload className="w-4 h-4" />
+                        {isCapturing ? 'Capturing...' : 'Capture Room Photo'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -673,7 +837,7 @@ export const ArRoomScannerView: React.FC<ArRoomScannerViewProps> = ({
                       isSelected ? 'ring-2 ring-white scale-110' : 'hover:scale-105'
                     } ${anchor.color || 'bg-blue-600'} border-white/40`}>
                       <MapPin className="w-3 h-3 text-white shrink-0" />
-                      <span className="truncate max-w-[120px]">{anchor.title}</span>
+                      <span className="truncate max-w-30">{anchor.title}</span>
                       {anchor.documents.length > 0 && (
                         <span className="bg-black/30 px-1 py-0.2 rounded text-[9px]">
                           {anchor.documents.length} Docs

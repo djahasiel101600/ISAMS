@@ -823,6 +823,7 @@ class MockDatabase {
     const newScan: RoomScanSession = {
       ...data,
       background_image: data.background_image || 'https://images.unsplash.com/photo-1590381105924-c72589b9ef3f?w=1200',
+      panorama_images: data.panorama_images || [],
       id: `scan-${Date.now()}`,
       created_at: now,
       anchors: []

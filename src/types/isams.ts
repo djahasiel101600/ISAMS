@@ -258,6 +258,7 @@ export interface RoomScanSession {
   location_path: string;
   location_id?: string;
   background_image: string;
+  panorama_images?: string[];
   paired_device_connected?: boolean;
   paired_device_name?: string;
   created_at: string;
