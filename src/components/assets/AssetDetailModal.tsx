@@ -178,7 +178,7 @@ export const AssetDetailModal: React.FC<AssetDetailModalProps> = ({
                           <span className="font-medium text-slate-200">{doc.title}</span>
                           <span className="text-[10px] text-slate-400">({doc.file_size})</span>
                         </div>
-                        <a href="#" onClick={(e) => e.preventDefault()} className="text-blue-400 hover:text-blue-300">
+                        <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
                           <Download className="w-3.5 h-3.5" />
                         </a>
                       </div>

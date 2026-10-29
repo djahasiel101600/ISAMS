@@ -10,6 +10,7 @@ import {
   AssetCategory,
   LocationNode,
   Asset,
+  AssetDocument,
   AssetLocationHistory,
   AuditLog,
   DashboardMetrics,
@@ -396,6 +397,69 @@ export const api = {
     return res.data;
   },
 
+  /**
+   * Upload a single document picture to the backend.
+   * Uses FormData (multipart) so the browser sets the correct boundary; no
+   * JSON Content-Type is forced. Optional: a failed upload does not block the
+   * calling form — callers should catch and continue.
+   */
+  async uploadDocument(file: File): Promise<{
+    id: string;
+    file_name: string;
+    file_size: string;
+    file_type: string;
+    url: string;
+  }> {
+    const baseUrl = getApiBaseUrl().replace(/\/$/, '');
+    const isDjango = isDjangoBackend();
+    const token = getAuthToken();
+
+    let url = '/documents/upload';
+    if (!url.startsWith('/api/v1') && !url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `${baseUrl}${url}`;
+    }
+    // Intentionally no trailing slash here: the custom path 'documents/upload'
+    // matches exactly without one, avoiding a POST→GET redirect on APPEND_SLASH.
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...(token ? { Authorization: isDjango ? `Token ${token}` : `Bearer ${token}` } : {}),
+    };
+    // NOTE: Content-Type is deliberately NOT set so the browser sets the
+    // multipart boundary for FormData.
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const text = await response.text();
+    let data: any = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (!response.ok) {
+          throw new Error(`Document upload failed with status ${response.status}: ${text}`);
+        }
+        data = text;
+      }
+    }
+
+    if (!response.ok) {
+      const message = data?.message || data?.detail || text || `Document upload failed with status ${response.status}`;
+      throw new Error(message);
+    }
+    if (data?.status === 'error') {
+      throw new Error(data.message || data.detail || 'Document upload failed');
+    }
+    return data.data;
+  },
+
   async createAsset(data: {
     title: string;
     organization_id?: string;
@@ -407,6 +471,7 @@ export const api = {
     description?: string;
     keywords?: string[];
     photos?: string[];
+    documents?: AssetDocument[];
     user_id?: string;
     user_name?: string;
   }): Promise<Asset> {
@@ -415,6 +480,7 @@ export const api = {
       description: data.description,
       keywords: data.keywords,
       photos: data.photos,
+      documents: data.documents,
       user_id: data.user_id,
       user_name: data.user_name,
     };

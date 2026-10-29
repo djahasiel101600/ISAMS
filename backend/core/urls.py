@@ -23,4 +23,5 @@ urlpatterns = [
     path('reports/export-csv', views.CSVExportView.as_view(), name='export-csv'),
     path('audit-logs', views.AuditLogListView.as_view(), name='audit-logs'),
     path('movement-history', views.MovementHistoryView.as_view(), name='movement-history'),
+    path('documents/upload', views.DocumentUploadView.as_view(), name='document-upload'),
 ]

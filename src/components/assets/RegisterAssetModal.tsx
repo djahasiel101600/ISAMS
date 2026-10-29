@@ -4,9 +4,15 @@
  * Allows supplying custom Category and Organization directly if needed/necessary.
  */
 
-import React, { useState } from 'react';
-import { X, Plus, MapPin, Tag, Image as ImageIcon, FileText, Building2, PlusCircle, Check } from 'lucide-react';
-import { AssetCategory, LocationNode, Organization } from '../../types/isams';
+import React, { useState, useEffect } from 'react';
+import { X, Plus, MapPin, Tag, Image as ImageIcon, FileText, Building2, PlusCircle, Check, Trash2, AlertCircle } from 'lucide-react';
+import { api } from '../../services/api';
+import {
+  AssetCategory,
+  LocationNode,
+  Organization,
+  AssetDocument,
+} from '../../types/isams';
 
 interface RegisterAssetModalProps {
   isOpen: boolean;
@@ -16,6 +22,7 @@ interface RegisterAssetModalProps {
   categories: AssetCategory[];
   locations: LocationNode[];
   initialLocationId?: string | null;
+  uploadedBy?: string;
   onSubmit: (data: {
     title: string;
     organization_id: string;
@@ -24,6 +31,7 @@ interface RegisterAssetModalProps {
     description: string;
     keywords: string;
     photos: string[];
+    documents?: AssetDocument[];
     newOrganization?: {
       name: string;
       code: string;
@@ -47,6 +55,7 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
   categories,
   locations,
   initialLocationId,
+  uploadedBy = 'System',
   onSubmit,
 }) => {
   const [title, setTitle] = useState('');
@@ -73,6 +82,14 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
   const [keywords, setKeywords] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
 
+  // Optional document picture uploads
+  const MAX_DOCUMENTS = 5;
+  const MAX_DOCUMENT_SIZE = 5 * 1024 * 1024; // 5 MB
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [documentPreviews, setDocumentPreviews] = useState<string[]>([]);
+  const [uploadedDocuments, setUploadedDocuments] = useState<AssetDocument[]>([]);
+  const [documentUploadErrors, setDocumentUploadErrors] = useState<string[]>([]);
+
   if (!isOpen) return null;
 
   const handleOrgSelectChange = (val: string) => {
@@ -95,6 +112,74 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
     }
   };
 
+  const revokeAllPreviews = () => {
+    documentPreviews.forEach((url) => URL.revokeObjectURL(url));
+  };
+
+  const handleDocumentFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (uploadedDocuments.length + files.length > MAX_DOCUMENTS) {
+      alert(`You can attach up to ${MAX_DOCUMENTS} document pictures in total.`);
+      return;
+    }
+
+    const newPreviews: string[] = [];
+    const newUploads: AssetDocument[] = [];
+    const newErrors: string[] = [];
+
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        newErrors.push(`${file.name} is not a valid image.`);
+        continue;
+      }
+      if (file.size > MAX_DOCUMENT_SIZE) {
+        newErrors.push(`${file.name} exceeds the 5 MB limit.`);
+        continue;
+      }
+
+      const previewUrl = URL.createObjectURL(file);
+      newPreviews.push(previewUrl);
+
+      try {
+        const uploaded = await api.uploadDocument(file);
+        // Object URL no longer needed once the file is uploaded.
+        URL.revokeObjectURL(previewUrl);
+        newUploads.push({
+          id: uploaded.id,
+          title: uploaded.file_name,
+          file_name: uploaded.file_name,
+          file_size: uploaded.file_size,
+          file_type: uploaded.file_type,
+          url: uploaded.url,
+          uploaded_at: new Date().toISOString(),
+          uploaded_by: uploadedBy,
+        });
+      } catch (err) {
+        newErrors.push(
+          `Failed to upload ${file.name}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    setDocumentFiles((prev) => [...prev, ...files]);
+    setDocumentPreviews((prev) => [...prev, ...newPreviews]);
+    setUploadedDocuments((prev) => [...prev, ...newUploads]);
+    setDocumentUploadErrors((prev) => [...prev, ...newErrors]);
+    // Reset the input so the same file can be re-selected if needed.
+    e.target.value = '';
+  };
+
+  const removeDocument = (index: number) => {
+    setDocumentPreviews((prev) => {
+      const url = prev[index];
+      if (url) URL.revokeObjectURL(url);
+      return prev.filter((_, i) => i !== index);
+    });
+    setDocumentFiles((prev) => prev.filter((_, i) => i !== index));
+    setUploadedDocuments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -112,6 +197,7 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
         description: description.trim(),
         keywords: keywords.trim(),
         photos: photoUrl.trim() ? [photoUrl.trim()] : [],
+        documents: uploadedDocuments.length > 0 ? uploadedDocuments : undefined,
         newOrganization: isSupplyingNewOrg ? {
           name: newOrgName.trim(),
           code: newOrgCode.trim() || newOrgName.trim().slice(0, 4).toUpperCase(),
@@ -125,6 +211,7 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
       });
 
       // Reset Form
+      revokeAllPreviews();
       setTitle('');
       setNewOrgName('');
       setNewOrgCode('');
@@ -135,12 +222,28 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
       setDescription('');
       setKeywords('');
       setPhotoUrl('');
+      setDocumentFiles([]);
+      setDocumentPreviews([]);
+      setUploadedDocuments([]);
+      setDocumentUploadErrors([]);
       onClose();
     } catch (err) {
       console.error('Register asset submission failed:', err);
       alert(`Failed to register asset: ${err instanceof Error ? err.message : err}`);
     }
   };
+
+  // Revoke local preview object URLs when the modal is closed without submitting
+  // so they are not leaked while the component stays mounted.
+  useEffect(() => {
+    if (!isOpen) {
+      documentPreviews.forEach((url) => URL.revokeObjectURL(url));
+      setDocumentFiles([]);
+      setDocumentPreviews([]);
+      setUploadedDocuments([]);
+      setDocumentUploadErrors([]);
+    }
+  }, [isOpen, documentPreviews]);
 
   const samplePhotoPresets = [
     'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=800',
@@ -391,6 +494,58 @@ export const RegisterAssetModal: React.FC<RegisterAssetModalProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Document Pictures (Optional) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                Document Pictures (Optional)
+              </label>
+              <span className="text-[10px] text-slate-500">Max {MAX_DOCUMENTS} images, 5 MB each</span>
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleDocumentFiles}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            />
+            {documentUploadErrors.length > 0 && (
+              <div className="space-y-1 pt-1">
+                {documentUploadErrors.map((err, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-rose-400">
+                    <AlertCircle className="w-3 h-3" />
+                    <span>{err}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {documentPreviews.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
+                {documentPreviews.map((preview, i) => (
+                  <div key={i} className="relative group rounded-xl border border-slate-700 bg-slate-800/80 overflow-hidden">
+                    <img
+                      src={preview}
+                      alt={`Document ${i + 1}`}
+                      className="w-full h-20 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeDocument(i)}
+                      aria-label={`Remove document ${i + 1}`}
+                      className="absolute top-1 right-1 p-1 bg-rose-500/90 text-white rounded hover:bg-rose-500 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    <span className="absolute bottom-1 left-1 right-1 px-1 py-0.5 bg-black/60 text-[9px] text-slate-200 truncate">
+                      {documentFiles[i]?.name || `Document ${i + 1}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Footer Buttons */}

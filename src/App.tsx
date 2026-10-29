@@ -37,6 +37,7 @@ import {
   AssetCategory, 
   LocationNode, 
   Asset, 
+  AssetDocument,
   DashboardMetrics, 
   PaginatedResult,
   AssetStatus
@@ -265,6 +266,7 @@ export default function App() {
     description: string;
     keywords: string;
     photos: string[];
+    documents?: AssetDocument[];
     newOrganization?: { name: string; code: string; contact_email?: string };
     newCategory?: { name: string; code: string; description?: string };
   }) => {
@@ -356,6 +358,7 @@ export default function App() {
         description: data.description,
         keywords: keywordArray,
         photos: data.photos,
+        documents: data.documents,
         organization: targetOrgId,
         user_id: currentUser.id,
         user_name: currentUser.name
@@ -733,6 +736,7 @@ export default function App() {
         categories={categories}
         locations={locations}
         initialLocationId={registerLocationId}
+        uploadedBy={currentUser?.name || 'System'}
         onSubmit={handleRegisterAssetSubmit}
       />
 

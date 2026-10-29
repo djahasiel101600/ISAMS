@@ -1,5 +1,9 @@
+import os
 import uuid
 from datetime import timedelta
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
@@ -756,3 +760,69 @@ class MovementHistoryView(APIView):
             queryset = queryset.filter(organization_id=org_id)
         serializer = AssetLocationHistorySerializer(queryset[:100], many=True)
         return Response({'status': 'success', 'data': serializer.data})
+
+
+class DocumentUploadView(APIView):
+    """
+    Optional document picture upload.
+    Accepts multipart/form-data with a single 'file' field, validates it is an
+    image within the allowed size limit, stores it under MEDIA_ROOT/documents/,
+    and returns the document metadata to be attached to an Asset/RoomAnchor.
+    This endpoint is intentionally independent of the asset models so no
+    migrations are required; callers store the returned metadata in the existing
+    JSON 'documents' field.
+    """
+
+    ALLOWED_CONTENT_TYPES = {
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+    }
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+    def post(self, request):
+        uploaded_file = request.FILES.get('file')
+        if not uploaded_file:
+            return Response(
+                {'status': 'error', 'message': 'No file was provided.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if uploaded_file.content_type not in self.ALLOWED_CONTENT_TYPES:
+            return Response(
+                {
+                    'status': 'error',
+                    'message': 'Unsupported file type. Please upload an image (JPEG, PNG, WebP, GIF).',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if uploaded_file.size > self.MAX_FILE_SIZE:
+            return Response(
+                {
+                    'status': 'error',
+                    'message': 'File is too large. Maximum size is 5 MB.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+        stored_name = f'documents/{uuid.uuid4().hex}{file_extension}'
+        saved_path = default_storage.save(stored_name, ContentFile(uploaded_file.read()))
+
+        document_url = f'{settings.MEDIA_URL}{saved_path}'
+
+        return Response(
+            {
+                'status': 'success',
+                'data': {
+                    'id': str(uuid.uuid4()),
+                    'file_name': uploaded_file.name,
+                    'file_size': f'{round(uploaded_file.size / 1024, 1)} KB',
+                    'file_type': uploaded_file.content_type,
+                    'url': document_url,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
